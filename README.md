@@ -129,4 +129,4 @@ Which logo file to use:
 
 ## Author
 
-Your Name. Add your link here.
+Your Name. Muhammad Ramzan
