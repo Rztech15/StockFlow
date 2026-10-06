@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>StockFlow Dashboard</title>
+<link rel="icon" href="../assets/favicon.ico">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
+<style>
+:root{--bg:#F3F5F9;--card:#fff;--ink:#1B2742;--mute:#5F6F8C;--line:#DDE3EE;--navy:#2C3E66;--or:#F26A1B;--ok:#1F9D6B;--low:#C98A00;--out:#D6403A;--chip:#E7ECF5;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0F1626;--card:#18233A;--ink:#EEF2FA;--mute:#9FB0CE;--line:#27355A;--navy:#9FB2D4;--chip:#222F4D;--low:#F0B429;--ok:#3DCB94;--out:#FF6B63}}
+:root[data-theme="dark"]{--bg:#0F1626;--card:#18233A;--ink:#EEF2FA;--mute:#9FB0CE;--line:#27355A;--navy:#9FB2D4;--chip:#222F4D;--low:#F0B429;--ok:#3DCB94;--out:#FF6B63}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;overflow-x:hidden;background:var(--bg);color:var(--ink);font:400 15px/1.5 Poppins,'Segoe UI',Arial,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:16px 16px 4px;max-width:960px;margin:0 auto}
+header h1{font-size:22px;margin:0;font-weight:700;letter-spacing:-.3px}
+header h1 b{color:var(--or)}
+header p{margin:0;color:var(--mute);font-size:13px}
+main{max-width:960px;margin:0 auto;padding:12px 14px 32px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+@media(min-width:700px){.kpis{grid-template-columns:repeat(4,1fr)}}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.kpi span{display:block;color:var(--mute);font-size:12px}
+.kpi strong{font-size:26px;font-weight:700}
+.kpi.warn strong{color:var(--low)} .kpi.bad strong{color:var(--out)}
+.card{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.card h2{font-size:16px;margin:0 0 2px;font-weight:600}
+.sub{color:var(--mute);font-size:12px;margin:0 0 10px}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--mute);margin-bottom:6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}
+svg.chart{width:100%;height:auto;display:block}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.row small{display:block;color:var(--mute);font-size:12px}
+button,.chip{font:inherit;cursor:pointer}
+.btn{background:var(--or);color:#fff;border:0;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;white-space:nowrap}
+.btn[disabled]{background:var(--chip);color:var(--mute);cursor:default}
+.tools{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 6px}
+.tools input{flex:1 1 100%;min-width:0;font:inherit;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+.chip{border:1px solid var(--line);background:var(--chip);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:13px}
+.chip[aria-pressed="true"]{background:var(--navy);color:var(--card);border-color:var(--navy)}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;table-layout:auto}
+th{font-size:12px;color:var(--mute);font-weight:500;text-align:left;padding:8px 4px}
+td{padding:10px 4px;border-top:1px solid var(--line);vertical-align:middle}
+td small{display:block;color:var(--mute);font-size:12px}
+.bar{height:6px;background:var(--chip);border-radius:4px;width:100%;max-width:90px;margin-top:5px;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:4px}
+.badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.s-ok{color:var(--ok)} .s-low{color:var(--low)} .s-out{color:var(--out)}
+.empty{color:var(--mute);padding:12px 0}
+button:focus-visible,input:focus-visible{outline:3px solid var(--or);outline-offset:2px}
+</style>
+</head>
+<body>
+<header>
+  <svg width="40" height="40" viewBox="92 92 840 840" aria-hidden="true">
+    <g stroke-linejoin="round" stroke-width="28"><polygon points="512,126 844,318 512,510 180,318" fill="#6F84AA" stroke="#6F84AA"/><polygon points="180,318 512,510 512,898 180,706" fill="#1B2742" stroke="#1B2742"/><polygon points="844,318 844,706 512,898 512,510" fill="#2C3E66" stroke="#2C3E66"/></g>
+    <g fill="none" stroke-width="82"><path d="M 620.3 324.5 A 125 125 0 1 0 512 512" stroke="#fff"/><path d="M 512 512 A 125 125 0 1 1 403.7 699.5" stroke="#FF8A2A"/></g>
+    <polygon points="689.6,284.5 551,364.5 670.3,411.1" fill="#fff"/><polygon points="334.4,739.5 473,659.5 353.7,612.9" fill="#FF8A2A"/>
+  </svg>
+  <div><h1>Stock<b>Flow</b></h1><p>Warehouse overview</p></div>
+</header>
+<main>
+  <section class="kpis" aria-label="Summary">
+    <div class="kpi"><span>Products</span><strong id="k1"></strong></div>
+    <div class="kpi"><span>Units in stock</span><strong id="k2"></strong></div>
+    <div class="kpi warn"><span>Low stock</span><strong id="k3"></strong></div>
+    <div class="kpi bad"><span>Out of stock</span><strong id="k4"></strong></div>
+  </section>
+
+  <section class="card">
+    <h2>Stock in and out</h2>
+    <p class="sub">Units moved in the last 7 days</p>
+    <div class="legend"><span><i style="background:var(--navy)"></i>Stock in</span><span><i style="background:var(--or)"></i>Stock out</span></div>
+    <svg id="chart" class="chart" viewBox="0 0 340 170" role="img" aria-label="Bar chart of units received and shipped per day"></svg>
+  </section>
+
+  <section class="card">
+    <h2>Needs restocking</h2>
+    <p class="sub">Products at or below their minimum level</p>
+    <div id="alerts"></div>
+  </section>
+
+  <section class="card">
+    <h2>Products</h2>
+    <div class="tools">
+      <input id="q" type="search" placeholder="Search name or SKU" aria-label="Search products">
+      <button class="chip" data-f="all" aria-pressed="true">All</button>
+      <button class="chip" data-f="low" aria-pressed="false">Low</button>
+      <button class="chip" data-f="out" aria-pressed="false">Out</button>
+    </div>
+    <div class="tw"><table><thead><tr><th>Product</th><th>Stock</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table></div>
+    <div id="none" class="empty" hidden>No products match. Clear the search or pick All.</div>
+  </section>
+</main>
+<script>
+const P=[
+["SF-1001","Wireless mouse",48,20],["SF-1002","USB-C cable 1m",12,30],["SF-1003","Laptop stand",0,10],
+["SF-1004","Notebook A5",96,40],["SF-1005","Gel pens (box of 12)",7,15],["SF-1006","Desk lamp",23,8],
+["SF-1007","HDMI adapter",0,12],["SF-1008","Mouse pad",34,15],["SF-1009","Webcam HD",9,10]
+].map(([sku,name,qty,min])=>({sku,name,qty,min}));
+const st=p=>p.qty===0?"out":p.qty<=p.min?"low":"ok";
+const label={ok:"In stock",low:"Low",out:"Out"};
+const $=id=>document.getElementById(id);
+let filter="all",done={};
+
+function kpis(){
+  $("k1").textContent=P.length;
+  $("k2").textContent=P.reduce((a,p)=>a+p.qty,0);
+  $("k3").textContent=P.filter(p=>st(p)==="low").length;
+  $("k4").textContent=P.filter(p=>st(p)==="out").length;
+}
+function chart(){
+  const d=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],i=[90,60,110,45,80,30,55],o=[70,85,60,75,95,40,50],m=120,h=120,s=document.getElementById("chart");
+  let x="";
+  [0,60,120].forEach(v=>{const y=140-v*h/m;x+=`<line x1="24" x2="340" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="0" y="${y+4}" font-size="10" fill="var(--mute)">${v}</text>`});
+  d.forEach((n,k)=>{const bx=34+k*44,a=i[k]*h/m,b=o[k]*h/m;
+    x+=`<rect x="${bx}" y="${140-a}" width="14" height="${a}" rx="3" fill="var(--navy)"/><rect x="${bx+17}" y="${140-b}" width="14" height="${b}" rx="3" fill="var(--or)"/><text x="${bx+15}" y="158" font-size="10" text-anchor="middle" fill="var(--mute)">${n}</text>`});
+  s.innerHTML=x;
+}
+function alerts(){
+  const L=P.filter(p=>st(p)!=="ok").sort((a,b)=>a.qty-b.qty);
+  $("alerts").innerHTML=L.length?L.map(p=>{const n=p.min*2-p.qty;
+    return `<div class="row"><div>${p.name}<small>${p.qty} left, minimum ${p.min}</small></div><button class="btn" data-r="${p.sku}" ${done[p.sku]?"disabled":""}>${done[p.sku]?"Reordered":"Reorder "+n}</button></div>`}).join(""):'<div class="empty">Nothing to restock. All products are above their minimum.</div>';
+}
+function table(){
+  const q=$("q").value.trim().toLowerCase();
+  const L=P.filter(p=>(filter==="all"||st(p)===filter)&&(p.name+p.sku).toLowerCase().includes(q));
+  $("rows").innerHTML=L.map(p=>{const s=st(p),w=Math.min(100,p.qty/(p.min*3)*100);
+    const c=s==="ok"?"var(--ok)":s==="low"?"var(--low)":"var(--out)";
+    return `<tr><td>${p.name}<small>${p.sku}</small></td><td>${p.qty}<div class="bar"><i style="width:${w}%;background:${c}"></i></div></td><td><span class="badge s-${s}">${label[s]}</span></td></tr>`}).join("");
+  $("none").hidden=L.length>0;
+}
+document.addEventListener("click",e=>{
+  const r=e.target.closest("[data-r]");
+  if(r){done[r.dataset.r]=1;alerts();}
+  const c=e.target.closest("[data-f]");
+  if(c){filter=c.dataset.f;document.querySelectorAll("[data-f]").forEach(b=>b.setAttribute("aria-pressed",b===c));table();}
+});
+$("q").addEventListener("input",table);
+kpis();chart();alerts();table();
+</script>
+</body>
+</html>
