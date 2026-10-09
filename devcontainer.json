@@ -1,0 +1,17 @@
+{
+  "name": "StockFlow",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postAttachCommand": "bash .devcontainer/run.sh",
+  "forwardPorts": [8000, 8025],
+  "portsAttributes": {
+    "8000": { "label": "StockFlow API", "onAutoForward": "openBrowser", "openPath": "/health" },
+    "8025": { "label": "Mailpit" }
+  },
+  "customizations": {
+    "vscode": { "extensions": ["ms-python.python", "charliermarsh.ruff"] }
+  }
+}

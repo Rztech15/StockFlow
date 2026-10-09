@@ -1,0 +1,9 @@
+title = "StockFlow gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Placeholders and obviously fake test values only"
+paths = ['''\.env\.example$''']
+regexes = ['''not-a-real-[a-z-]+''', '''change-me-[a-z]+''']

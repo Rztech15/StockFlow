@@ -6,6 +6,15 @@
 
 StockFlow helps a small business know what it has, what is running low, and what to reorder. Every stock in and stock out is recorded, product quantities update automatically, and a dashboard shows the current picture at a glance.
 
+## Platform direction
+
+StockFlow is being developed as a scalable, multi-tenant inventory platform (small shops through multi-branch and warehouse operations), not only a single-shop app. Architecture decisions are in [`docs/adr/`](docs/adr/0001-architecture-decisions.md).
+
+**Phase 0 (development foundation) is written but not yet closed:** it still needs its first full validation run. It provides a Python (FastAPI) API skeleton, PostgreSQL 16 with row-level-security tenant isolation covered by automated tests, migrations, Docker and a CI script. **Business functionality begins in later phases.**
+
+- `dashboard/` is the existing static prototype on sample data. It is **not** connected to a database or to the new API.
+- `backend/` is the new production application foundation (API, migrations, tests).
+
 ## Features
 
 - Dashboard with summary numbers: products, units in stock, low stock, out of stock
@@ -22,19 +31,48 @@ StockFlow helps a small business know what it has, what is running low, and what
 | Brand and logo | Done |
 | Dashboard UI | Done, runs on sample data (not yet connected to the database) |
 | Database schema | Done, written for MySQL 8 |
-| Backend API | Planned |
+| Backend API | Phase 0 foundation written (health endpoint only); business endpoints planned |
+| Development foundation (Phase 0) | Written, pending first full validation run |
 
 ## Project structure
 
 ```
 stockflow/
 ├── README.md
-├── assets/       logo, banner, favicon files
-├── database/
-│   └── schema.sql
-└── dashboard/
-    └── index.html
+├── schema.sql      original MySQL prototype schema (unchanged)
+├── assets/         logo, banner, favicon files (unchanged)
+├── dashboard/      existing static prototype (not connected to any database or API)
+├── legacy/         reference copy of the MySQL schema
+├── backend/        NEW production API foundation (Python / FastAPI)
+│   ├── app/        config, db (tenant_tx), errors, money, health route
+│   ├── migrations/ Alembic migrations (PostgreSQL)
+│   ├── scripts/    init_env, bootstrap_db, ci
+│   └── tests/      unit, integration, tenant-isolation and guard tests
+├── docs/adr/       architecture decision records
+└── docker-compose.yml, Dockerfile, .env.example
 ```
+
+## Development foundation (Phase 0, Python)
+
+Needs Python 3.12 and Docker Desktop. Windows `cmd`, from the repository root:
+
+```
+cd backend
+py -3.12 -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[dev]"
+python -m scripts.init_env
+docker compose -f ..\docker-compose.yml up -d --wait db mailpit
+python -m scripts.bootstrap_db
+alembic upgrade head
+uvicorn app.main:create_app --factory --reload
+```
+
+Then open http://127.0.0.1:8000/health (it returns `{"status":"ok"}`).
+
+Checks (inside `backend`): `ruff check .`, `pytest -m "not db"`, `pytest -m "db and not rls and not guard"`, `pytest -m rls`, `pytest -m guard`. The whole pipeline: `python -m scripts.ci`.
+
+The API connects as the restricted `stockflow_app` role (no BYPASSRLS, owns nothing, no DDL). Migrations use the separate owner role and are never run by the API. The MySQL steps below apply only to the original prototype schema.
 
 ## Setup
 
@@ -63,7 +101,7 @@ Then open http://localhost:8000.
 You need MySQL 8 or newer.
 
 ```bash
-mysql -u root -p < database/schema.sql
+mysql -u root -p < schema.sql
 ```
 
 This creates the `stockflow` database, all tables, triggers, a status view, and a few sample rows. Check it worked:
@@ -129,4 +167,4 @@ Which logo file to use:
 
 ## Author
 
-Your Name. Muhammad Ramzan
+Muhammad Ramzan
