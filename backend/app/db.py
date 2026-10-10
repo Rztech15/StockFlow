@@ -1,11 +1,16 @@
+
 """The ONLY module that talks to PostgreSQL (enforced by a ruff rule).
 
 tenant_tx(ctx) is the single way application code gets a connection:
-    BEGIN; set_config('app.tenant_id', ..., true); set_config('app.user_id', ..., true);
-    ...your queries...; COMMIT   (ROLLBACK if an exception escapes)
-`true` makes the settings transaction-local: PostgreSQL discards them at COMMIT/ROLLBACK, so a
-pooled connection never carries tenant context into its next use. Row Level Security policies
-then read the context through app.current_tenant_id().
+    BEGIN; set_config('app.tenant_id', ..., true);
+    set_config('app.user_id', ..., true);
+    set_config('row_security', 'on', true);
+    ...your queries...; COMMIT
+    (ROLLBACK if an exception escapes)
+
+The true argument makes settings transaction-local, so PostgreSQL resets
+them at COMMIT/ROLLBACK and pooled connections do not retain tenant context.
+Row Level Security policies read the tenant through app.current_tenant_id().
 """
 
 import re
@@ -18,7 +23,10 @@ from app.context import TenantContext
 
 __all__ = ["Connection", "Database", "InvalidTenantContextError", "text"]
 
-_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+_UUID = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
 
 
 class InvalidTenantContextError(ValueError):
@@ -34,7 +42,7 @@ def _uuid(name: str, value: object) -> str:
 def _sqlalchemy_url(url: str) -> str:
     for prefix in ("postgresql://", "postgres://"):
         if url.startswith(prefix):
-            return "postgresql+psycopg://" + url[len(prefix) :]
+            return "postgresql+psycopg://" + url[len(prefix):]
     return url
 
 
@@ -47,7 +55,6 @@ class Database:
             pool_pre_ping=True,
             connect_args={
                 "application_name": "stockflow",
-                "options": "-c statement_timeout=30000 -c idle_in_transaction_session_timeout=60000",
             },
         )
 
@@ -60,11 +67,13 @@ class Database:
     def tenant_tx(self, ctx: TenantContext) -> Iterator[Connection]:
         tenant_id = _uuid("tenant_id", ctx.tenant_id)
         user_id = _uuid("user_id", ctx.user_id)
-        with self._engine.begin() as conn:  # commits on success, rolls back on exception
+
+        with self._engine.begin() as conn:
             conn.execute(
                 text(
                     "SELECT set_config('app.tenant_id', :tenant, true), "
-                    "set_config('app.user_id', :user, true)"
+                    "set_config('app.user_id', :user, true), "
+                    "set_config('row_security', 'on', true)"
                 ),
                 {"tenant": tenant_id, "user": user_id},
             )
