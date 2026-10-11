@@ -38,8 +38,8 @@ def test_runtime_connection_is_stockflow_app_and_cannot_run_ddl():
         for statement in (
             "CREATE TABLE public.should_fail (id int)",
             "CREATE SCHEMA should_fail",
-            "DROP TABLE public.rls_probe",
-            "ALTER TABLE public.rls_probe DISABLE ROW LEVEL SECURITY",
+            "DROP TABLE public.products",
+            "ALTER TABLE public.products DISABLE ROW LEVEL SECURITY",
             "CREATE ROLE should_fail",
         ):
             assert sqlstate_of(lambda s=statement: conn.execute(s)) == "42501", statement
@@ -49,4 +49,4 @@ def test_runtime_role_cannot_switch_row_security_off():
     with app_conn() as conn:
         conn.execute("SET row_security = off")
         # Without BYPASSRLS this does not bypass policies; PostgreSQL raises an error instead.
-        assert sqlstate_of(lambda: conn.execute("SELECT * FROM public.rls_probe")) == "42501"
+        assert sqlstate_of(lambda: conn.execute("SELECT * FROM public.products")) == "42501"

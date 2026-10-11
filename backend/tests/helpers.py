@@ -59,3 +59,8 @@ def sqlstate_of(fn: Callable[[], object]) -> str | None:
     except psycopg.Error as error:
         return error.sqlstate or "no-sqlstate"
     return None
+
+
+def reset_inventory() -> None:
+    with owner_conn() as conn:
+        conn.execute("TRUNCATE TABLE public.stock_movements, public.products")

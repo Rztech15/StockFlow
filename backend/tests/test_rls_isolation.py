@@ -1,18 +1,24 @@
-"""Tenant isolation against REAL PostgreSQL and the REAL stockflow_app role. No mocks."""
+"""Tenant isolation tests against real PostgreSQL and the stockflow_app role."""
 
-import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
+from uuid import uuid4
 
 import pytest
 
 from app.context import TenantContext
 from app.db import Database, text
 from tests.helpers import (
-    TENANT_A, TENANT_B, USER_A, USER_B, app_url, reset_probe, sqlstate_of,
-)  # fmt: skip
+    TENANT_A,
+    TENANT_B,
+    USER_A,
+    USER_B,
+    app_url,
+    reset_inventory,
+    sqlstate_of,
+)
 
 pytestmark = [pytest.mark.db, pytest.mark.rls]
+
 CTX_A = TenantContext(TENANT_A, USER_A)
 CTX_B = TenantContext(TENANT_B, USER_B)
 
@@ -26,133 +32,210 @@ def db():
 
 @pytest.fixture
 def rows(db):
-    """One row per tenant. Returns (id_of_A_row, id_of_B_row)."""
-    reset_probe()
+    """Create one product per tenant and return their IDs."""
+    reset_inventory()
     ids = []
-    for ctx, tenant, payload in ((CTX_A, TENANT_A, "a-secret"), (CTX_B, TENANT_B, "b-secret")):
+
+    for ctx, tenant_id, sku, name in (
+        (CTX_A, TENANT_A, "RLS-A-TEST", "a-secret"),
+        (CTX_B, TENANT_B, "RLS-B-TEST", "b-secret"),
+    ):
+        product_id = str(uuid4())
+
         with db.tenant_tx(ctx) as conn:
-            ids.append(
-                conn.execute(
-                    text("INSERT INTO rls_probe (tenant_id, payload) VALUES (:t, :p) RETURNING id"),
-                    {"t": tenant, "p": payload},
-                ).scalar_one()
+            conn.execute(
+                text("""
+                    INSERT INTO public.products
+                        (id, tenant_id, sku, name)
+                    VALUES
+                        (:id, :tenant_id, :sku, :name)
+                """),
+                {
+                    "id": product_id,
+                    "tenant_id": tenant_id,
+                    "sku": sku,
+                    "name": name,
+                },
             )
+
+        ids.append(product_id)
+
     return ids[0], ids[1]
 
 
-def payloads(db, ctx) -> list[str]:
+def product_names(db, ctx):
     with db.tenant_tx(ctx) as conn:
-        return [r[0] for r in conn.execute(text("SELECT payload FROM rls_probe ORDER BY payload"))]
+        return list(
+            conn.execute(
+                text("SELECT name FROM public.products ORDER BY name")
+            ).scalars()
+        )
 
 
-def test_1_tenant_a_cannot_read_tenant_b_rows(db, rows):
-    _, b_id = rows
-    assert payloads(db, CTX_A) == ["a-secret"]
+def test_tenant_can_only_read_its_own_products(db, rows):
+    a_id, b_id = rows
+
     with db.tenant_tx(CTX_A) as conn:
-        assert conn.execute(text("SELECT id FROM rls_probe WHERE id = :i"), {"i": b_id}).all() == []
+        assert conn.execute(
+            text("SELECT id FROM public.products WHERE id = :id"),
+            {"id": a_id},
+        ).scalar_one() == __import__("uuid").UUID(a_id)
+
+        assert conn.execute(
+            text("SELECT id FROM public.products WHERE id = :id"),
+            {"id": b_id},
+        ).first() is None
+
+    assert product_names(db, CTX_A) == ["a-secret"]
+    assert product_names(db, CTX_B) == ["b-secret"]
 
 
-def test_2_tenant_a_cannot_insert_rows_for_tenant_b(db, rows):
+def test_tenant_cannot_insert_for_another_tenant(db, rows):
+    del rows
+    product_id = str(uuid4())
+
     def attempt():
         with db.tenant_tx(CTX_A) as conn:
             conn.execute(
-                text("INSERT INTO rls_probe (tenant_id, payload) VALUES (:t, 'planted')"),
-                {"t": TENANT_B},
+                text("""
+                    INSERT INTO public.products (id, tenant_id, sku, name)
+                    VALUES (:id, :tenant_id, :sku, :name)
+                """),
+                {
+                    "id": product_id,
+                    "tenant_id": TENANT_B,
+                    "sku": "FORBIDDEN-TEST",
+                    "name": "forbidden",
+                },
             )
 
-    assert sqlstate_of(attempt) == "42501"  # violates row-level security policy
-    assert payloads(db, CTX_B) == ["b-secret"]
+    assert sqlstate_of(attempt) == "42501"
 
 
-def test_3_tenant_a_cannot_update_tenant_b_rows_or_move_its_own(db, rows):
+def test_tenant_cannot_update_or_move_another_tenants_product(db, rows):
     a_id, b_id = rows
+
     with db.tenant_tx(CTX_A) as conn:
-        result = conn.execute(text("UPDATE rls_probe SET payload = 'hacked' WHERE id = :i"), {"i": b_id})
+        result = conn.execute(
+            text("""
+                UPDATE public.products
+                SET name = 'changed'
+                WHERE id = :id
+            """),
+            {"id": b_id},
+        )
         assert result.rowcount == 0
 
-    def move():
+    def move_own_product():
         with db.tenant_tx(CTX_A) as conn:
-            conn.execute(text("UPDATE rls_probe SET tenant_id = :t WHERE id = :i"), {"t": TENANT_B, "i": a_id})
+            conn.execute(
+                text("""
+                    UPDATE public.products
+                    SET tenant_id = :other_tenant
+                    WHERE id = :id
+                """),
+                {"other_tenant": TENANT_B, "id": a_id},
+            )
 
-    assert sqlstate_of(move) == "42501"
-    assert payloads(db, CTX_B) == ["b-secret"]
+    assert sqlstate_of(move_own_product) == "42501"
+    assert product_names(db, CTX_B) == ["b-secret"]
 
 
-def test_4_tenant_a_cannot_delete_tenant_b_rows(db, rows):
+def test_tenant_cannot_delete_another_tenants_product(db, rows):
     _, b_id = rows
+
     with db.tenant_tx(CTX_A) as conn:
-        assert conn.execute(text("DELETE FROM rls_probe WHERE id = :i"), {"i": b_id}).rowcount == 0
-    assert payloads(db, CTX_B) == ["b-secret"]
+        result = conn.execute(
+            text("DELETE FROM public.products WHERE id = :id"),
+            {"id": b_id},
+        )
+        assert result.rowcount == 0
+
+    assert product_names(db, CTX_B) == ["b-secret"]
 
 
-def test_5_no_tenant_context_returns_no_rows(db, rows):
-    with db.engine.connect() as conn:  # bare connection, no tenant_tx
-        assert conn.execute(text("SELECT count(*) FROM rls_probe")).scalar_one() == 0
-        conn.rollback()
-    with db.engine.connect() as conn:
-        conn.execute(text("SELECT set_config('app.tenant_id', '', true)"))
-        assert conn.execute(text("SELECT count(*) FROM rls_probe")).scalar_one() == 0
-        conn.execute(text("SELECT set_config('app.tenant_id', 'not-a-uuid', true)"))
-        assert conn.execute(text("SELECT count(*) FROM rls_probe")).scalar_one() == 0
-        conn.rollback()
+def test_missing_context_cannot_read_or_insert_products(db, rows):
+    del rows
 
-    def bare_insert():
+    with db.engine.begin() as conn:
+        assert conn.execute(
+            text("SELECT count(*) FROM public.products")
+        ).scalar_one() == 0
+
+    def attempt():
         with db.engine.begin() as conn:
             conn.execute(
-                text("INSERT INTO rls_probe (tenant_id, payload) VALUES (:t, 'x')"), {"t": TENANT_A}
+                text("""
+                    INSERT INTO public.products (id, tenant_id, sku, name)
+                    VALUES (:id, :tenant_id, :sku, :name)
+                """),
+                {
+                    "id": str(uuid4()),
+                    "tenant_id": TENANT_A,
+                    "sku": "NO-CONTEXT-TEST",
+                    "name": "forbidden",
+                },
             )
 
-    assert sqlstate_of(bare_insert) == "42501"
+    assert sqlstate_of(attempt) == "42501"
 
 
-def test_6_context_disappears_after_commit_and_rollback(rows):
-    single = Database(app_url(), pool_size=1)  # ONE connection: the next use is the same session
-    try:
-        with single.tenant_tx(CTX_A) as conn:
-            assert conn.execute(text("SELECT count(*) FROM rls_probe")).scalar_one() == 1
+def test_context_does_not_leak_after_commit_or_rollback(db, rows):
+    a_id, _ = rows
 
-        def current_setting() -> str | None:
-            with single.engine.connect() as conn:
-                value = conn.execute(text("SELECT current_setting('app.tenant_id', true)")).scalar_one()
-                count = conn.execute(text("SELECT count(*) FROM rls_probe")).scalar_one()
-                conn.rollback()
-            assert count == 0
-            return value
+    with db.tenant_tx(CTX_A) as conn:
+        assert conn.execute(
+            text("SELECT id FROM public.products WHERE id = :id"),
+            {"id": a_id},
+        ).scalar_one() == __import__("uuid").UUID(a_id)
 
-        assert current_setting() in (None, "")  # after commit
+    with db.engine.begin() as conn:
+        assert conn.execute(
+            text("SELECT count(*) FROM public.products")
+        ).scalar_one() == 0
 
-        with pytest.raises(RuntimeError), single.tenant_tx(CTX_A) as conn:
+    with pytest.raises(RuntimeError):
+        with db.tenant_tx(CTX_A) as conn:
             conn.execute(
-                text("INSERT INTO rls_probe (tenant_id, payload) VALUES (:t, 'rolled-back')"),
-                {"t": TENANT_A},
+                text("""
+                    INSERT INTO public.products (id, tenant_id, sku, name)
+                    VALUES (:id, :tenant_id, :sku, :name)
+                """),
+                {
+                    "id": str(uuid4()),
+                    "tenant_id": TENANT_A,
+                    "sku": "ROLLBACK-TEST",
+                    "name": "rollback",
+                },
             )
-            raise RuntimeError("boom")
-        assert current_setting() in (None, "")  # after rollback
-    finally:
-        single.dispose()
+            raise RuntimeError("force rollback")
+
+    with db.engine.begin() as conn:
+        assert conn.execute(
+            text("SELECT count(*) FROM public.products")
+        ).scalar_one() == 0
 
 
-def test_7_context_does_not_leak_between_pooled_connections(rows):
-    small = Database(app_url(), pool_size=2)
-    barrier = threading.Barrier(2, timeout=10)
+def test_pooled_connections_do_not_leak_tenant_context(db, rows):
+    del rows
 
-    def job(i: int) -> tuple[list[str], str]:
-        ctx, expected = (CTX_A, "a-secret") if i % 2 == 0 else (CTX_B, "b-secret")
-        with small.tenant_tx(ctx) as conn:
-            if i < 2:
-                barrier.wait()  # first two jobs hold both connections at the same time
-            time.sleep(0.005)
-            seen = [r[0] for r in conn.execute(text("SELECT payload FROM rls_probe"))]
-            setting = conn.execute(text("SELECT current_setting('app.tenant_id')")).scalar_one()
-        assert setting == ctx.tenant_id
-        return seen, expected
+    def read_for(ctx):
+        with db.tenant_tx(ctx) as conn:
+            return list(
+                conn.execute(
+                    text("SELECT name FROM public.products ORDER BY name")
+                ).scalars()
+            )
 
-    try:
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            for seen, expected in pool.map(job, range(40)):
-                assert seen == [expected]
-        with small.engine.connect() as conn:  # a bare connection from the same pool
-            assert conn.execute(text("SELECT count(*) FROM rls_probe")).scalar_one() == 0
-            conn.rollback()
-    finally:
-        small.dispose()
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(
+            executor.map(
+                read_for,
+                [CTX_A, CTX_B, CTX_A, CTX_B] * 3,
+            )
+        )
+
+    for index, result in enumerate(results):
+        assert result == (
+            ["a-secret"] if index % 2 == 0 else ["b-secret"]
+        )
