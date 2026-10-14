@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StockFlow</title>
+  <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/brand/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <img class="logo" src="/brand/logo-horizontal-dark.svg" alt="StockFlow">
+    <div id="userbar" class="userbar" hidden>
+      <select id="workspace-switch" aria-label="Workspace"></select>
+      <button id="new-workspace" class="btn ghost small" type="button">+ Workspace</button>
+      <button id="bell" class="btn ghost small" type="button" aria-label="Notifications">Alerts <span id="bell-count" class="count" hidden>0</span></button>
+      <span id="role-label" class="badge in"></span>
+      <button id="logout" class="btn ghost small" type="button">Log out</button>
+    </div>
+    <button id="theme-toggle" class="btn ghost small" type="button">Theme: Auto</button>
+  </header>
+
+  <main>
+    <p id="banner" class="banner" role="alert" hidden></p>
+    <p id="info" class="banner info" hidden></p>
+
+    <section id="auth-view" class="card narrow" hidden>
+      <img id="hero-logo" class="hero-logo" src="/brand/logo-horizontal.svg" alt="StockFlow, smart inventory management">
+      <div class="tabs" role="tablist">
+        <button id="tab-login" class="tab active" type="button" role="tab">Log in</button>
+        <button id="tab-register" class="tab" type="button" role="tab">Create account</button>
+      </div>
+      <form id="login-form" class="form">
+        <label>Email <input name="email" type="email" autocomplete="username" required maxlength="254"></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required maxlength="128"></label>
+        <button class="btn" type="submit">Log in</button>
+      </form>
+      <form id="register-form" class="form" hidden>
+        <label>Workspace name <input name="workspace_name" required maxlength="120" placeholder="e.g. Acme Traders"></label>
+        <label>Email <input name="email" type="email" autocomplete="username" required maxlength="254"></label>
+        <label>Password (10+ characters) <input name="password" type="password" autocomplete="new-password" required minlength="10" maxlength="128"></label>
+        <button class="btn" type="submit">Create workspace</button>
+      </form>
+    </section>
+
+    <section id="app-view" hidden>
+      <nav class="tabs nav">
+        <button class="tab active" type="button" data-view="inventory">Inventory</button>
+        <button class="tab" type="button" data-view="purchasing">Purchasing</button>
+        <button class="tab" type="button" data-view="insights">Insights</button>
+        <button class="tab" type="button" data-view="reports">Reports</button>
+        <button class="tab" type="button" data-view="team">Team</button>
+        <button class="tab" type="button" data-view="settings">Settings</button>
+      </nav>
+
+      <div id="view-inventory" data-panel>
+        <div id="summary" class="cards"></div>
+        <div class="card">
+          <div class="row">
+            <h2>Products</h2>
+            <div class="row gap">
+              <input id="search" type="search" placeholder="Search SKU or name" maxlength="100">
+              <select id="category-filter" aria-label="Category"><option value="">All categories</option></select>
+              <select id="stock-filter">
+                <option value="all">All stock</option>
+                <option value="low">Low stock</option>
+                <option value="out">Out of stock</option>
+              </select>
+              <button id="add-product" class="btn" type="button">Add product</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>SKU</th><th>Name</th><th>Category</th><th class="num">Qty</th><th class="num">Min</th><th>Unit</th><th></th></tr></thead>
+              <tbody id="products-body"></tbody>
+            </table>
+          </div>
+          <p id="products-empty" class="muted" hidden>No products yet.</p>
+        </div>
+        <div class="card">
+          <h2>Recent stock movements</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>When</th><th>SKU</th><th>Product</th><th>Type</th><th class="num">Qty</th><th>Note</th></tr></thead>
+              <tbody id="movements-body"></tbody>
+            </table>
+          </div>
+          <p id="movements-empty" class="muted" hidden>No movements yet.</p>
+        </div>
+      </div>
+
+      <div id="view-purchasing" data-panel hidden>
+        <div class="card">
+          <div class="row"><h2>Purchase orders</h2><button id="new-order" class="btn" type="button">New order</button></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Supplier</th><th>Items</th><th>Status</th><th></th></tr></thead>
+              <tbody id="orders-body"></tbody>
+            </table>
+          </div>
+          <p id="orders-empty" class="muted" hidden>No purchase orders yet.</p>
+        </div>
+        <div class="card">
+          <div class="row"><h2>Suppliers</h2><button id="new-supplier" class="btn" type="button">Add supplier</button></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Notes</th></tr></thead>
+              <tbody id="suppliers-body"></tbody>
+            </table>
+          </div>
+          <p id="suppliers-empty" class="muted" hidden>No suppliers yet.</p>
+        </div>
+      </div>
+
+      <div id="view-reports" data-panel hidden>
+        <div class="card">
+          <div class="row">
+            <h2>Stock movements</h2>
+            <select id="report-days" aria-label="Period">
+              <option value="7">Last 7 days</option>
+              <option value="30" selected>Last 30 days</option>
+              <option value="90">Last 90 days</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Day</th><th class="num">In</th><th class="num">Out</th><th>Activity</th></tr></thead>
+              <tbody id="report-daily"></tbody>
+            </table>
+          </div>
+          <p id="report-empty" class="muted" hidden>No movements in this period.</p>
+        </div>
+        <div class="card">
+          <h2>Most active products</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>SKU</th><th>Product</th><th class="num">In</th><th class="num">Out</th><th class="num">Moves</th></tr></thead>
+              <tbody id="report-top"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="view-insights" data-panel hidden>
+        <div class="card">
+          <div class="row"><h2>Smart insights</h2>
+            <select id="insight-days" aria-label="History"><option value="30">Based on 30 days</option><option value="60" selected>Based on 60 days</option><option value="90">Based on 90 days</option></select>
+          </div>
+          <p class="muted">Rule-based analysis of your own sales history (a moving average, not machine learning).</p>
+          <ul id="insights-list" class="plain"></ul>
+        </div>
+        <div class="card">
+          <h2>Demand forecast and suggested reorders</h2>
+          <p id="insight-note" class="muted"></p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Product</th><th class="num">On hand</th><th class="num">On order</th><th class="num">Per day</th><th class="num">Days left</th><th>Trend</th><th class="num">Next 30 days</th><th class="num">Order</th><th>Status</th></tr></thead>
+            <tbody id="forecast-body"></tbody>
+          </table></div>
+        </div>
+        <div class="card">
+          <h2>Supplier lead times</h2>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Supplier</th><th class="num">Orders</th><th class="num">Received</th><th class="num">Avg days</th><th class="num">Fastest</th><th class="num">Slowest</th></tr></thead>
+            <tbody id="lead-body"></tbody>
+          </table></div>
+        </div>
+      </div>
+
+      <div id="view-team" data-panel hidden>
+        <div class="card">
+          <h2>Team members</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Email</th><th>Role</th><th>Joined</th><th></th></tr></thead>
+              <tbody id="members-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Recent activity</h2>
+          <div class="table-wrap"><table>
+            <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Details</th></tr></thead>
+            <tbody id="activity-body"></tbody>
+          </table></div>
+        </div>
+        <div class="card" id="add-member-card">
+          <h2>Add a member</h2>
+          <p class="muted">The person must already have a StockFlow account. Enter the email they registered with.</p>
+          <form id="member-form" class="row gap">
+            <input name="email" type="email" placeholder="email@example.com" required maxlength="254">
+            <select name="role">
+              <option value="viewer">Viewer</option>
+              <option value="staff">Staff</option>
+              <option value="manager">Manager</option>
+              <option value="admin">Admin</option>
+              <option value="owner">Owner</option>
+            </select>
+            <button class="btn" type="submit">Add</button>
+          </form>
+        </div>
+      </div>
+      <div id="view-settings" data-panel hidden>
+        <div class="card"><h2>Plan and usage</h2><div id="plan-box"></div></div>
+        <div class="card">
+          <h2>SKU convention</h2>
+          <p class="muted">Products created without a SKU get the next number, e.g. <strong id="sku-example"></strong>.</p>
+          <form id="sku-form" class="row gap">
+            <label>Prefix <input name="prefix" maxlength="12" placeholder="SF-"></label>
+            <label>Digits <input name="padding" type="number" min="1" max="12" value="5" required></label>
+            <label>Next number <input name="next_number" type="number" min="1" value="1" required></label>
+            <button class="btn" type="submit">Save</button>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Categories</h2>
+          <ul id="category-list" class="plain"></ul>
+          <form id="category-form" class="row gap"><input name="name" placeholder="New category" required maxlength="80"><button class="btn" type="submit">Add</button></form>
+        </div>
+        <div class="card">
+          <h2>Notifications</h2>
+          <p class="muted">Shown inside StockFlow under Alerts. Email delivery is not connected yet.</p>
+          <form id="prefs-form" class="form">
+            <label class="check"><input name="notify_low_stock" type="checkbox"> Low and out-of-stock alerts</label>
+            <label class="check"><input name="notify_order_events" type="checkbox"> Open purchase order reminders</label>
+            <button class="btn" type="submit">Save preferences</button>
+          </form>
+        </div>
+        <div class="card" id="api-card">
+          <h2>API access and exports</h2>
+          <p class="muted">Use a key from your own scripts, Zapier/Make or accounting and shop tools: send <code>Authorization: Bearer YOUR_KEY</code> to <code>/api/v1/...</code>. Keys are shown once.</p>
+          <p id="new-key" class="banner info" hidden></p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Name</th><th>Key</th><th>Access</th><th>Last used</th><th></th></tr></thead>
+            <tbody id="keys-body"></tbody>
+          </table></div>
+          <form id="key-form" class="row gap">
+            <input name="name" placeholder="Key name, e.g. Accounting sync" required maxlength="80">
+            <select name="scope"><option value="read">Read only</option><option value="readwrite">Read and write</option></select>
+            <button class="btn" type="submit">Create key</button>
+          </form>
+          <p><a class="btn ghost small" href="/api/v1/export/products.csv" download>Export products (CSV)</a>
+             <a class="btn ghost small" href="/api/v1/export/movements.csv" download>Export movements (CSV)</a></p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="product-dialog">
+    <form id="product-form" class="form" method="dialog">
+      <h3 id="product-dialog-title">Product</h3>
+      <label>SKU <input name="sku" maxlength="64" placeholder="Leave empty to auto-generate"></label>
+      <label>Name <input name="name" required maxlength="160"></label>
+      <label>Category <select name="category_id"><option value="">No category</option></select></label>
+      <label>Description <textarea name="description" maxlength="2000" rows="2"></textarea></label>
+      <label>Minimum stock <input name="minimum_stock" type="number" min="0" value="0" required></label>
+      <label>Unit <input name="unit" value="unit" required maxlength="24" list="units"></label>
+      <datalist id="units"><option value="unit"><option value="piece"><option value="box"><option value="pack"><option value="pair"><option value="dozen"><option value="kg"><option value="g"><option value="litre"><option value="ml"><option value="meter"><option value="roll"></datalist>
+      <p id="product-error" class="error" hidden></p>
+      <div class="row gap end">
+        <button id="product-cancel" class="btn ghost" type="button">Cancel</button>
+        <button class="btn" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="movement-dialog">
+    <form id="movement-form" class="form" method="dialog">
+      <h3 id="movement-dialog-title">Stock movement</h3>
+      <label>Quantity <input name="quantity" type="number" min="1" max="1000000" required></label>
+      <label>Note <input name="note" maxlength="1000"></label>
+      <p id="movement-error" class="error" hidden></p>
+      <div class="row gap end">
+        <button id="movement-cancel" class="btn ghost" type="button">Cancel</button>
+        <button class="btn" type="submit">Record</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="supplier-dialog">
+    <form id="supplier-form" class="form" method="dialog">
+      <h3>Add supplier</h3>
+      <label>Name <input name="name" required maxlength="160"></label>
+      <label>Email <input name="email" type="email" maxlength="254"></label>
+      <label>Phone <input name="phone" maxlength="40"></label>
+      <label>Notes <textarea name="notes" maxlength="2000" rows="2"></textarea></label>
+      <p id="supplier-error" class="error" hidden></p>
+      <div class="row gap end">
+        <button id="supplier-cancel" class="btn ghost" type="button">Cancel</button>
+        <button class="btn" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="order-dialog">
+    <form id="order-form" class="form" method="dialog">
+      <h3>New purchase order</h3>
+      <label>Supplier <select name="supplier" id="order-supplier" required></select></label>
+      <label>Note <input name="note" maxlength="1000"></label>
+      <div id="order-lines" class="form"></div>
+      <button id="order-add-line" class="btn ghost small" type="button">+ Add product line</button>
+      <p id="order-error" class="error" hidden></p>
+      <div class="row gap end">
+        <button id="order-cancel" class="btn ghost" type="button">Cancel</button>
+        <button class="btn" type="submit">Create order</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>

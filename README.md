@@ -10,7 +10,7 @@ StockFlow helps a small business know what it has, what is running low, and what
 
 StockFlow is being developed as a scalable, multi-tenant inventory platform (small shops through multi-branch and warehouse operations), not only a single-shop app. Architecture decisions are in [`docs/adr/`](docs/adr/0001-architecture-decisions.md).
 
-**Phase 0 (development foundation) is written but not yet closed:** it still needs its first full validation run. It provides a Python (FastAPI) API skeleton, PostgreSQL 16 with row-level-security tenant isolation covered by automated tests, migrations, Docker and a CI script. **Business functionality begins in later phases.**
+**StockFlow now has a working MVP:** a Python (FastAPI) API with registration, login and logout (Argon2id passwords, server-side sessions), workspaces with roles, products and an append-only stock ledger, all isolated per tenant by PostgreSQL row-level security, plus a web dashboard served from `backend/public`. Automated tests exist for every layer, but **they have not all been run on a real database yet**; see `DEPLOY.md` for the verification and deployment steps.
 
 - `dashboard/` is the existing static prototype on sample data. It is **not** connected to a database or to the new API.
 - `backend/` is the new production application foundation (API, migrations, tests).
@@ -31,8 +31,9 @@ StockFlow is being developed as a scalable, multi-tenant inventory platform (sma
 | Brand and logo | Done |
 | Dashboard UI | Done, runs on sample data (not yet connected to the database) |
 | Database schema | Done, written for MySQL 8 |
-| Backend API | Phase 0 foundation written (health endpoint only); business endpoints planned |
-| Development foundation (Phase 0) | Written, pending first full validation run |
+| Backend API | Auth, workspaces and roles, products with categories and SKU conventions, stock ledger, suppliers and purchase orders, reports, insights and reorder suggestions, activity log, API keys and CSV exports, plans and usage limits |
+| Dashboard (`backend/public`) | Responsive, light/dark; inventory, purchasing, insights, reports, team and settings |
+| Tests | Written; run them per `DEPLOY.md` before relying on them |
 
 ## Project structure
 
@@ -168,3 +169,7 @@ Which logo file to use:
 ## Author
 
 Muhammad Ramzan
+
+## Deploying
+
+See [`DEPLOY.md`](DEPLOY.md) for the Neon, GitHub and Vercel steps and the production checklist.

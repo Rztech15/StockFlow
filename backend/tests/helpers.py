@@ -5,7 +5,7 @@ from collections.abc import Callable
 import psycopg
 from sqlalchemy.exc import DBAPIError
 
-from app.config import MigrationSettings, Settings
+from app.config import MigrationSettings, Settings, require_development_database
 
 TENANT_A = "11111111-1111-4111-8111-111111111111"
 TENANT_B = "22222222-2222-4222-8222-222222222222"
@@ -30,10 +30,12 @@ def make_settings(**overrides: object) -> Settings:
 
 
 def app_url() -> str:
+    require_development_database()
     return Settings().database_url.get_secret_value()  # type: ignore[call-arg]
 
 
 def owner_url() -> str:
+    require_development_database()
     return MigrationSettings().migration_database_url.get_secret_value()  # type: ignore[call-arg]
 
 
@@ -45,9 +47,9 @@ def app_conn() -> psycopg.Connection:
     return psycopg.connect(app_url(), autocommit=True)
 
 
-def reset_probe() -> None:
+def reset_inventory() -> None:
     with owner_conn() as conn:  # TRUNCATE is not subject to RLS; the owner may run it
-        conn.execute("TRUNCATE TABLE public.rls_probe")
+        conn.execute("TRUNCATE TABLE public.stock_movements, public.products")
 
 
 def sqlstate_of(fn: Callable[[], object]) -> str | None:
@@ -59,8 +61,3 @@ def sqlstate_of(fn: Callable[[], object]) -> str | None:
     except psycopg.Error as error:
         return error.sqlstate or "no-sqlstate"
     return None
-
-
-def reset_inventory() -> None:
-    with owner_conn() as conn:
-        conn.execute("TRUNCATE TABLE public.stock_movements, public.products")

@@ -1,4 +1,3 @@
-
 import logging
 import re
 import uuid
@@ -23,8 +22,16 @@ from app.errors import (
     problem_from_unexpected,
     problem_from_validation,
 )
+from app.routes.auth import router as auth_router
 from app.routes.health import router as health_router
+from app.routes.insights import router as insights_router
+from app.routes.integrations import router as integrations_router
+from app.routes.purchasing import router as purchasing_router
+from app.routes.reports import router as reports_router
+from app.routes.settings import router as settings_router
+from app.routes.team import router as team_router
 from app.routes.v1 import router as v1_router
+from app.routes.web import router as web_router
 
 log = logging.getLogger("stockflow")
 _REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{8,64}")
@@ -41,24 +48,14 @@ def _secure_headers(response: Response, request_id: str) -> None:
 
 
 def _respond(problem: Problem, request_id: str) -> JSONResponse:
-    response = JSONResponse(
-        problem.body,
-        status_code=problem.status,
-        media_type=PROBLEM_CONTENT_TYPE,
-    )
+    response = JSONResponse(problem.body, status_code=problem.status, media_type=PROBLEM_CONTENT_TYPE)
     _secure_headers(response, request_id)
     return response
 
 
-def create_app(
-    settings: Settings | None = None,
-    db: Database | None = None,
-) -> FastAPI:
+def create_app(settings: Settings | None = None, db: Database | None = None) -> FastAPI:
     settings = settings or load_settings_or_exit()
-    db = db or Database(
-        settings.database_url.get_secret_value(),
-        pool_size=settings.db_pool_max,
-    )
+    db = db or Database(settings.database_url.get_secret_value(), pool_size=settings.db_pool_max)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -68,13 +65,12 @@ def create_app(
     prod = settings.is_production
     app = FastAPI(
         title="StockFlow API",
-        version="0.0.0",
+        version="0.1.0",
         docs_url=None if prod else "/docs",
         redoc_url=None,
         openapi_url=None if prod else "/openapi.json",
         lifespan=lifespan,
     )
-
     app.state.settings = settings
     app.state.db = db
 
@@ -87,75 +83,45 @@ def create_app(
     )
 
     @app.middleware("http")
-    async def request_context(
-        request: Request,
-        call_next,
-    ):  # type: ignore[no-untyped-def]
+    async def request_context(request: Request, call_next):  # type: ignore[no-untyped-def]
         inbound = request.headers.get("x-request-id", "")
-
         # Accept an inbound id only if well-formed (prevents log injection).
-        rid = (
-            inbound
-            if _REQUEST_ID.fullmatch(inbound)
-            else str(uuid.uuid4())
-        )
-
+        rid = inbound if _REQUEST_ID.fullmatch(inbound) else str(uuid.uuid4())
         request.state.request_id = rid
         request.state.ctx = RequestContext(request_id=rid)
-
         response = await call_next(request)
         _secure_headers(response, rid)
         return response
 
     @app.exception_handler(AppError)
-    async def _app_error(
-        request: Request,
-        exc: AppError,
-    ) -> JSONResponse:
+    async def _app_error(request: Request, exc: AppError) -> JSONResponse:
         rid = _request_id(request)
         return _respond(problem_from_app_error(exc, rid), rid)
 
     @app.exception_handler(StarletteHTTPException)
-    async def _http_error(
-        request: Request,
-        exc: StarletteHTTPException,
-    ) -> JSONResponse:
+    async def _http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         rid = _request_id(request)
         return _respond(problem_from_status(exc.status_code, rid), rid)
 
     @app.exception_handler(RequestValidationError)
-    async def _validation(
-        request: Request,
-        exc: RequestValidationError,
-    ) -> JSONResponse:
+    async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
         rid = _request_id(request)
-        return _respond(
-            problem_from_validation(list(exc.errors()), rid),
-            rid,
-        )  # type: ignore[arg-type]
+        return _respond(problem_from_validation(list(exc.errors()), rid), rid)  # type: ignore[arg-type]
 
     @app.exception_handler(Exception)
-    async def _unexpected(
-        request: Request,
-        exc: Exception,
-    ) -> JSONResponse:
+    async def _unexpected(request: Request, exc: Exception) -> JSONResponse:
         rid = _request_id(request)
-        log.error(
-            "unhandled error (request %s)",
-            rid,
-            exc_info=exc,
-        )  # traceback stays in logs
-
-        return _respond(
-            problem_from_unexpected(
-                exc,
-                rid,
-                expose_message=not prod,
-            ),
-            rid,
-        )
+        log.error("unhandled error (request %s)", rid, exc_info=exc)  # traceback stays in logs
+        return _respond(problem_from_unexpected(exc, rid, expose_message=not prod), rid)
 
     app.include_router(health_router)
+    app.include_router(auth_router)
     app.include_router(v1_router)
-
+    app.include_router(team_router)
+    app.include_router(purchasing_router)
+    app.include_router(reports_router)
+    app.include_router(settings_router)
+    app.include_router(insights_router)
+    app.include_router(integrations_router)
+    app.include_router(web_router)
     return app

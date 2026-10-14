@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: "${POSTGRES_ADMIN_PASSWORD:?Create .env first: python -m scripts.init_env}"
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Create .env first: python -m scripts.init_env}
       POSTGRES_DB: postgres
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"

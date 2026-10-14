@@ -10,7 +10,7 @@ import psycopg
 
 APP_ROLE = "stockflow_app"
 OWNER_ROLE = "stockflow_owner"
-APPEND_ONLY_TABLES: tuple[str, ...] = ()
+APPEND_ONLY_TABLES: tuple[str, ...] = ("public.stock_movements", "public.activity_log")
 
 _NAMES = {"r": "SELECT", "a": "INSERT", "w": "UPDATE", "d": "DELETE"}
 

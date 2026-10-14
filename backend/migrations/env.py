@@ -4,7 +4,10 @@ Migrations are plain SQL (no ORM models). The API never runs migrations at start
 from alembic import context
 from sqlalchemy import create_engine
 
-from app.config import MigrationSettings
+from app.config import MigrationSettings, require_development_database
+
+# Dev-only by default. A production migration needs the explicit override documented in DEPLOY.md.
+require_development_database(allow_override=True)
 
 url = MigrationSettings().migration_database_url.get_secret_value()  # type: ignore[call-arg]
 for prefix in ("postgresql://", "postgres://"):

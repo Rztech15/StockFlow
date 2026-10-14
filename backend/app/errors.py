@@ -1,180 +1,107 @@
-"""Application errors and RFC 9457-style problem responses."""
+"""Central error model: RFC 9457-style problem details. No stack traces or DB internals leak."""
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
 
-from fastapi import status
-
-PROBLEM_CONTENT_TYPE = "application/problem+json"
 PROBLEM_TYPE_PREFIX = "urn:stockflow:problem:"
+PROBLEM_CONTENT_TYPE = "application/problem+json"
 
-
-@dataclass(frozen=True)
-class Problem:
-    """HTTP status and response body for a problem response."""
-
-    status: int
-    body: dict[str, object]
+_TITLES = {
+    400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found",
+    405: "Method Not Allowed", 406: "Not Acceptable", 408: "Request Timeout",
+    409: "Conflict", 413: "Payload Too Large", 415: "Unsupported Media Type",
+    422: "Unprocessable Content", 429: "Too Many Requests",
+}  # fmt: skip
 
 
 class AppError(Exception):
-    """An expected application error safe to return to the client."""
+    """An expected, client-facing failure."""
 
     def __init__(
         self,
-        status_code: int,
+        status: int,
+        code: str,
         title: str,
-        detail: str,
-        problem_type: str | None = None,
+        detail: str | None = None,
+        errors: list[dict[str, str]] | None = None,
     ) -> None:
-        super().__init__(detail)
-        self.status_code = status_code
-        self.title = title
-        self.detail = detail
-        self.problem_type = problem_type or title.lower().replace(" ", "-")
+        super().__init__(detail or title)
+        self.status, self.code, self.title = status, code, title
+        self.detail, self.errors = detail, errors
+
+
+def bad_request(detail: str | None = None) -> AppError:
+    return AppError(400, "bad-request", "Bad Request", detail)
+
+
+def unauthorized(detail: str | None = None) -> AppError:
+    return AppError(401, "unauthorized", "Unauthorized", detail)
+
+
+def forbidden(detail: str | None = None) -> AppError:
+    return AppError(403, "forbidden", "Forbidden", detail)
+
+
+def not_found(detail: str | None = None) -> AppError:
+    return AppError(404, "not-found", "Not Found", detail)
+
+
+def conflict(detail: str | None = None) -> AppError:
+    return AppError(409, "conflict", "Conflict", detail)
+
+
+@dataclass
+class Problem:
+    status: int
+    body: dict[str, object] = field(default_factory=dict)
 
 
 def _base(request_id: str) -> dict[str, object]:
-    """Return common response fields."""
-    return {
-        "requestId": request_id,
-        "instance": f"urn:stockflow:request:{request_id}",
-    }
+    return {"instance": f"urn:stockflow:request:{request_id}", "requestId": request_id}
 
 
-def bad_request(detail: str) -> AppError:
-    return AppError(
-        status.HTTP_400_BAD_REQUEST,
-        "Bad Request",
-        detail,
-        "bad-request",
-    )
-
-
-def unauthorized(
-    detail: str = "Authentication is required.",
-) -> AppError:
-    return AppError(
-        status.HTTP_401_UNAUTHORIZED,
-        "Unauthorized",
-        detail,
-        "unauthorized",
-    )
-
-
-def forbidden(
-    detail: str = "You do not have permission to perform this action.",
-) -> AppError:
-    return AppError(
-        status.HTTP_403_FORBIDDEN,
-        "Forbidden",
-        detail,
-        "forbidden",
-    )
-
-
-def not_found(detail: str = "Resource not found.") -> AppError:
-    return AppError(
-        status.HTTP_404_NOT_FOUND,
-        "Not Found",
-        detail,
-        "not-found",
-    )
-
-
-def conflict(detail: str) -> AppError:
-    return AppError(
-        status.HTTP_409_CONFLICT,
-        "Conflict",
-        detail,
-        "conflict",
-    )
-
-
-def problem_from_app_error(
-    exc: AppError,
-    request_id: str,
-) -> Problem:
+def problem_from_app_error(error: AppError, request_id: str) -> Problem:
     body: dict[str, object] = {
-        "type": f"{PROBLEM_TYPE_PREFIX}{exc.problem_type}",
-        "title": exc.title,
-        "status": exc.status_code,
-        "detail": exc.detail,
+        "type": f"{PROBLEM_TYPE_PREFIX}{error.code}",
+        "title": error.title,
+        "status": error.status,
     }
-    return Problem(exc.status_code, {**body, **_base(request_id)})
+    if error.detail:
+        body["detail"] = error.detail
+    if error.errors:
+        body["errors"] = error.errors
+    return Problem(error.status, {**body, **_base(request_id)})
 
 
-def problem_from_status(
-    status_code: int,
-    request_id: str,
-) -> Problem:
-    titles = {
-        400: "Bad Request",
-        401: "Unauthorized",
-        403: "Forbidden",
-        404: "Not Found",
-        405: "Method Not Allowed",
-        409: "Conflict",
-        422: "Validation Failed",
-        429: "Too Many Requests",
-    }
-    title = titles.get(status_code, "HTTP Error")
-    body: dict[str, object] = {
-        "type": f"{PROBLEM_TYPE_PREFIX}http-error",
-        "title": title,
-        "status": status_code,
-        "detail": title,
-    }
-    return Problem(status_code, {**body, **_base(request_id)})
+def problem_from_status(status: int, request_id: str) -> Problem:
+    """Generic 4xx/5xx from the framework (404 unknown route, 405, ...). No custom detail."""
+    body = {"type": "about:blank", "title": _TITLES.get(status, "Error"), "status": status}
+    return Problem(status, {**body, **_base(request_id)})
 
 
-def problem_from_validation(
-    errors: list[dict[str, Any]],
-    request_id: str,
-) -> Problem:
-    """Return validation paths and messages without submitted values."""
+def problem_from_validation(errors: list[dict[str, object]], request_id: str) -> Problem:
+    """Request validation failures. Only field path and message; never the submitted value."""
     items = [
-        {
-            "path": ".".join(
-                str(part)
-                for part in error.get("loc", ())
-                if part != "body"
-            ),
-            "message": str(error["msg"]),
-        }
-        for error in errors
+        {"path": ".".join(str(p) for p in e.get("loc", ()) if p != "body"), "message": str(e["msg"])}
+        for e in errors
     ]
-
     body: dict[str, object] = {
         "type": f"{PROBLEM_TYPE_PREFIX}validation-failed",
         "title": "Validation Failed",
-        "status": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "status": 422,
         "detail": "One or more fields are invalid.",
         "errors": items,
     }
-    return Problem(
-        status.HTTP_422_UNPROCESSABLE_ENTITY,
-        {**body, **_base(request_id)},
-    )
+    return Problem(422, {**body, **_base(request_id)})
 
 
-def problem_from_unexpected(
-    exc: Exception,
-    request_id: str,
-    expose_message: bool = False,
-) -> Problem:
-    detail = (
-        str(exc)
-        if expose_message
-        else "An unexpected error occurred."
-    )
+def problem_from_unexpected(error: Exception, request_id: str, expose_message: bool) -> Problem:
+    """Unknown errors become a generic 500. Outside production only, the message (not the
+    traceback) is added to help debugging."""
+    detail = str(error) if expose_message else "An unexpected error occurred."
     body: dict[str, object] = {
         "type": f"{PROBLEM_TYPE_PREFIX}internal-error",
         "title": "Internal Server Error",
-        "status": status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "status": 500,
         "detail": detail,
     }
-    return Problem(
-        status.HTTP_500_INTERNAL_SERVER_ERROR,
-        {**body, **_base(request_id)},
-    )
+    return Problem(500, {**body, **_base(request_id)})

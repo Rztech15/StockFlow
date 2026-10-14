@@ -1,0 +1,33 @@
+name: Migrate production database
+# Manual only. Needs the repository secret MIGRATION_DATABASE_URL (stockflow_owner, PRODUCTION branch).
+on:
+  workflow_dispatch:
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      # Separate steps on purpose: login/inventory (0005), members/purchasing (0007) and the
+      # newer catalog/API-key features (0009) each commit before the next runs, so a problem in
+      # a newer migration cannot undo the earlier ones.
+      - run: python -m alembic upgrade 0005
+        env:
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          ALLOW_PRODUCTION_MIGRATION: I_UNDERSTAND
+      - run: python -m alembic upgrade 0007
+        env:
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          ALLOW_PRODUCTION_MIGRATION: I_UNDERSTAND
+      - run: python -m alembic upgrade head
+        env:
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          ALLOW_PRODUCTION_MIGRATION: I_UNDERSTAND

@@ -1,16 +1,20 @@
-
 """The ONLY module that talks to PostgreSQL (enforced by a ruff rule).
 
-tenant_tx(ctx) is the single way application code gets a connection:
+tenant_tx(ctx) is the single way application code gets a tenant connection:
     BEGIN; set_config('app.tenant_id', ..., true);
-    set_config('app.user_id', ..., true);
-    set_config('row_security', 'on', true);
+           set_config('app.user_id', ..., true);
+           set_config('row_security', 'on', true);
     ...your queries...; COMMIT
     (ROLLBACK if an exception escapes)
 
 The true argument makes settings transaction-local, so PostgreSQL resets
 them at COMMIT/ROLLBACK and pooled connections do not retain tenant context.
 Row Level Security policies read the tenant through app.current_tenant_id().
+
+auth_tx() is the only PRE-tenant path (register, login, session lookup). It sets no
+tenant and no user. The runtime role has no privileges on the authentication tables, so
+inside auth_tx() it can do nothing except call the narrow app.auth_* SECURITY DEFINER
+functions created by migrations 0004/0005.
 """
 
 import re
@@ -55,6 +59,8 @@ class Database:
             pool_pre_ping=True,
             connect_args={
                 "application_name": "stockflow",
+                # Safe behind Neon's pooler (PgBouncer): no auto-prepared statements.
+                "prepare_threshold": None,
             },
         )
 
@@ -77,6 +83,13 @@ class Database:
                 ),
                 {"tenant": tenant_id, "user": user_id},
             )
+            yield conn
+
+    @contextmanager
+    def auth_tx(self) -> Iterator[Connection]:
+        """Transaction with NO tenant and NO user. Only app.auth_* functions are callable."""
+        with self._engine.begin() as conn:
+            conn.execute(text("SELECT set_config('row_security', 'on', true)"))
             yield conn
 
     def dispose(self) -> None:
