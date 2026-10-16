@@ -1,175 +1,211 @@
 <p align="center">
   <img src="assets/logo-any-background.png" alt="StockFlow logo" width="520">
-</p>
+</p><p align="center">
+  <strong>StockFlow — Smart Inventory & Stock Management</strong><br>
+  Track inventory. Control stock movement. Make better replenishment decisions.
+</p><p align="center">
+  <a href="https://github.com/Rztech15/StockFlow">GitHub Repository</a> ·
+  <a href="https://stock-flow-api-iota.vercel.app">Live API</a> ·
+  <a href="https://stock-flow-api-iota.vercel.app/health">API Health Check</a>
+</p>---
 
-<p align="center"><b>Smart inventory and stock management system</b></p>
+Overview
 
-StockFlow helps a small business know what it has, what is running low, and what to reorder. Every stock in and stock out is recorded, product quantities update automatically, and a dashboard shows the current picture at a glance.
+StockFlow is an inventory management system designed to help businesses manage products, monitor stock levels, record inventory movements, and make informed restocking decisions.
 
-## Platform direction
+The project is evolving from a static dashboard prototype into a multi-tenant platform intended to support small businesses and, in the future, multi-location and warehouse operations.
 
-StockFlow is being developed as a scalable, multi-tenant inventory platform (small shops through multi-branch and warehouse operations), not only a single-shop app. Architecture decisions are in [`docs/adr/`](docs/adr/0001-architecture-decisions.md).
+Key Features
 
-**StockFlow now has a working MVP:** a Python (FastAPI) API with registration, login and logout (Argon2id passwords, server-side sessions), workspaces with roles, products and an append-only stock ledger, all isolated per tenant by PostgreSQL row-level security, plus a web dashboard served from `backend/public`. Automated tests exist for every layer, but **they have not all been run on a real database yet**; see `DEPLOY.md` for the verification and deployment steps.
+- Inventory Dashboard: View product counts, available stock, low-stock items, and out-of-stock products.
+- Stock Management: Record stock-in and stock-out movements with an inventory history.
+- Product Management: Organize products using categories, units, and SKU conventions.
+- Smart Reordering: View low-stock products and suggested reorder quantities.
+- Supplier Management: Maintain supplier information and manage purchase orders.
+- Inventory Insights: Review demand estimates, supplier lead-time analysis, and rule-based recommendations.
+- Reports and Exports: Access reports, activity history, and supported CSV exports.
+- Team Workspaces: Support workspace roles such as owner, admin, manager, staff, and viewer.
+- API Access: Use scoped API keys for supported operations.
+- Responsive UI: Designed for mobile and desktop, with light, dark, and automatic themes.
 
-- `dashboard/` is the existing static prototype on sample data. It is **not** connected to a database or to the new API.
-- `backend/` is the new production application foundation (API, migrations, tests).
+Technology Stack
 
-## Features
+Technology| Purpose
+Python| Backend programming language
+FastAPI| REST API framework
+PostgreSQL| Database for the new backend
+Alembic| Database migrations
+Argon2id| Password hashing
+Server-side sessions| Authentication session management
+PostgreSQL RLS| Tenant data isolation
+pytest| Automated testing
+Vercel| API deployment
+MySQL 8| Original prototype schema
 
-- Dashboard with summary numbers: products, units in stock, low stock, out of stock
-- Stock in and out chart for the last 7 days
-- Needs restocking list with a Reorder button
-- Product table with search and All / Low / Out filters
-- Works on phone and laptop, with light and dark themes
-- Database that blocks overselling and updates stock automatically
+Architecture note: The original MySQL schema and static dashboard are retained as prototype assets. The newer backend uses PostgreSQL; these components are not yet connected as one complete application.
 
-## Project status
+Architecture and Security
 
-| Part | Status |
-| --- | --- |
-| Brand and logo | Done |
-| Dashboard UI | Done, runs on sample data (not yet connected to the database) |
-| Database schema | Done, written for MySQL 8 |
-| Backend API | Auth, workspaces and roles, products with categories and SKU conventions, stock ledger, suppliers and purchase orders, reports, insights and reorder suggestions, activity log, API keys and CSV exports, plans and usage limits |
-| Dashboard (`backend/public`) | Responsive, light/dark; inventory, purchasing, insights, reports, team and settings |
-| Tests | Written; run them per `DEPLOY.md` before relying on them |
+StockFlow is designed around several important engineering principles:
 
-## Project structure
+- Multi-tenancy: Separate business workspaces within a shared application.
+- Database-level isolation: PostgreSQL Row-Level Security helps enforce tenant boundaries.
+- Inventory ledger: Preserve a history of stock movements.
+- Stock integrity: Protect against stock quantities falling below zero.
+- Role-based access: Control supported actions according to workspace roles.
+- Restricted database permissions: Use a restricted application role and a separate migration role.
+- Environment configuration: Keep credentials and application secrets outside source code.
 
-```
-stockflow/
-├── README.md
-├── schema.sql      original MySQL prototype schema (unchanged)
-├── assets/         logo, banner, favicon files (unchanged)
-├── dashboard/      existing static prototype (not connected to any database or API)
-├── legacy/         reference copy of the MySQL schema
-├── backend/        NEW production API foundation (Python / FastAPI)
-│   ├── app/        config, db (tenant_tx), errors, money, health route
-│   ├── migrations/ Alembic migrations (PostgreSQL)
-│   ├── scripts/    init_env, bootstrap_db, ci
-│   └── tests/      unit, integration, tenant-isolation and guard tests
-├── docs/adr/       architecture decision records
-└── docker-compose.yml, Dockerfile, .env.example
-```
+These design choices do not constitute independent security certification. Complete the database and deployment verification steps before using the application with real business data.
 
-## Development foundation (Phase 0, Python)
+Project Structure
 
-Needs Python 3.12 and Docker Desktop. Windows `cmd`, from the repository root:
+StockFlow/
+├── assets/          # Logo, banner, app icon, favicon
+├── dashboard/       # Original static dashboard prototype
+├── backend/         # FastAPI application, migrations, tests
+├── docs/adr/        # Architecture decisions
+├── legacy/          # Reference MySQL schema
+├── schema.sql       # Original MySQL prototype schema
+├── docker-compose.yml
+├── Dockerfile
+├── .env.example
+├── DEPLOY.md        # Deployment and verification guide
+└── README.md
 
-```
+Project Status
+
+Component| Status
+Branding and logo| Available
+Static dashboard| Available; uses sample data
+FastAPI backend| Implemented application foundation
+Authentication and workspaces| Included in backend
+Inventory and purchasing| Included in backend scope
+Reports and insights| Included in backend scope
+PostgreSQL migrations| Managed with Alembic
+Automated tests| Written; execution and verification required
+Full end-to-end integration| Requires further verification
+
+Important: The existing "dashboard/" prototype is not connected to the new backend. The backend's complete database and deployment workflow must be tested before treating the project as production-ready.
+
+Live Deployment
+
+- API Base URL: https://stock-flow-api-iota.vercel.app
+- Health Endpoint: https://stock-flow-api-iota.vercel.app/health
+- Source Code: https://github.com/Rztech15/StockFlow
+- Deployment Guide: "DEPLOY.md" (DEPLOY.md)
+
+The API URL is the backend deployment, not a confirmed public dashboard demo. The static dashboard remains separate.
+
+Installation and Local Setup
+
+Prerequisites
+
+- Python 3.12
+- Docker Desktop
+- Git
+
+1. Clone the repository
+
+git clone https://github.com/Rztech15/StockFlow.git
+cd StockFlow
+
+2. Create a virtual environment
+
+On Windows Command Prompt:
+
 cd backend
 py -3.12 -m venv .venv
 .venv\Scripts\activate
 pip install -e ".[dev]"
+
+On macOS or Linux:
+
+cd backend
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+
+3. Configure the environment and database
+
+Run from the "backend/" directory with the virtual environment active:
+
 python -m scripts.init_env
-docker compose -f ..\docker-compose.yml up -d --wait db mailpit
+docker compose -f ../docker-compose.yml up -d --wait db mailpit
 python -m scripts.bootstrap_db
 alembic upgrade head
 uvicorn app.main:create_app --factory --reload
-```
 
-Then open http://127.0.0.1:8000/health (it returns `{"status":"ok"}`).
+Open:
 
-Checks (inside `backend`): `ruff check .`, `pytest -m "not db"`, `pytest -m "db and not rls and not guard"`, `pytest -m rls`, `pytest -m guard`. The whole pipeline: `python -m scripts.ci`.
+http://127.0.0.1:8000/health
 
-The API connects as the restricted `stockflow_app` role (no BYPASSRLS, owns nothing, no DDL). Migrations use the separate owner role and are never run by the API. The MySQL steps below apply only to the original prototype schema.
+A healthy local API should return:
 
-## Setup
+{"status":"ok"}
 
-### 1. Get the project
+For environment configuration and deployment safeguards, follow "DEPLOY.md" (DEPLOY.md).
 
-```bash
-git clone https://github.com/<your-username>/stockflow.git
-cd stockflow
-```
+Testing
 
-### 2. Run the dashboard
+Run these commands from "backend/":
 
-No install needed. Open `dashboard/index.html` in a browser by double-clicking it.
+ruff check .
+pytest -m "not db"
+pytest -m "db and not rls and not guard"
+pytest -m rls
+pytest -m guard
+python -m scripts.ci
 
-To serve it locally instead:
+Safety: Database tests can modify test tables. Use a dedicated development/test database and follow the safeguards in "DEPLOY.md". Never run database tests against production data.
 
-```bash
-cd dashboard
-python3 -m http.server 8000
-```
+Original MySQL Prototype
 
-Then open http://localhost:8000.
+The root-level "schema.sql" belongs to the original prototype and targets MySQL 8 or newer.
 
-### 3. Create the database
+To initialize that prototype:
 
-You need MySQL 8 or newer.
-
-```bash
 mysql -u root -p < schema.sql
-```
 
-This creates the `stockflow` database, all tables, triggers, a status view, and a few sample rows. Check it worked:
+This is separate from the PostgreSQL-backed application setup.
 
-```sql
-USE stockflow;
-SELECT * FROM v_product_status;
-```
+Known Limitations
 
-Try a stock movement. The product quantity updates by itself:
+- The static dashboard is not connected to the new backend.
+- Full database testing and end-to-end deployment verification remain necessary.
+- Email verification, password reset, invitations, and outbound email notifications are not fully implemented.
+- Payment processing is not connected.
+- Direct integrations with external accounting and e-commerce platforms are not included.
+- CSV export is supported; CSV import is not yet implemented.
+- Inventory insights use statistical and rule-based logic, not a third-party AI model.
 
-```sql
-INSERT INTO stock_movements (product_id, user_id, type, quantity, note)
-VALUES (1, 1, 'OUT', 5, 'Test sale');
-```
+See "DEPLOY.md" (DEPLOY.md) for the detailed deployment checklist and additional limitations.
 
-Trying to take out more than what is in stock gives the error "Not enough stock for this product".
+Brand Identity
 
-### 4. Put the dashboard online (optional)
+Element| Value
+Navy| "#1B2742"
+Slate Blue| "#2C3E66"
+Orange Gradient| "#F26A1B" → "#FFB547"
+Typeface| Poppins
 
-1. Push the repository to GitHub.
-2. Open Settings, then Pages.
-3. Choose the `main` branch and the root folder, then Save.
-4. After a minute the dashboard is live at `https://<your-username>.github.io/stockflow/dashboard/`.
+Existing logo assets:
 
-## Database overview
+- General background: "assets/logo-any-background.png"
+- White background: "assets/logo-horizontal.png"
+- Dark background: "assets/logo-horizontal-dark.png"
+- App icon: "assets/logo-icon-512.png"
+- Favicon: "assets/favicon.ico"
 
-| Table | Purpose |
-| --- | --- |
-| `users` | People who log in (admin, manager, staff) |
-| `categories` | Product groups |
-| `suppliers` | Who you buy from |
-| `products` | Items, current quantity and minimum level |
-| `stock_movements` | Every stock in and out |
-| `purchase_orders` and `purchase_order_items` | Reorders sent to suppliers |
-
-A product is **Out** at 0 units, **Low** at or below its minimum level, and **In stock** otherwise.
-
-## Roadmap
-
-- [ ] Backend API (login, products, movements, reorders)
-- [ ] Connect the dashboard to the database
-- [ ] Barcode scanning
-- [ ] CSV import and export
-- [ ] Email alerts for low stock
-
-## Brand
-
-| | |
-| --- | --- |
-| Navy | `#1B2742` |
-| Slate blue | `#2C3E66` |
-| Orange | `#F26A1B` to `#FFB547` |
-| Font | Poppins |
-
-Which logo file to use:
-
-- White background: `assets/logo-horizontal.png`
-- Dark background: `assets/logo-horizontal-dark.png`
-- Unknown background: `assets/logo-any-background.png`
-- App icon: `assets/logo-icon-512.png`
-- Favicon: `assets/favicon.ico`
-
-## Author
+Author
 
 Muhammad Ramzan
 
-## Deploying
+- GitHub: "@Rztech15" (https://github.com/Rztech15)
+- Project: "StockFlow" (https://github.com/Rztech15/StockFlow)
 
-See [`DEPLOY.md`](DEPLOY.md) for the Neon, GitHub and Vercel steps and the production checklist.
+---
+
+<p align="center">
+  <strong>StockFlow — Clearer Inventory. More Reliable Stock Records.</strong>
+</p>
