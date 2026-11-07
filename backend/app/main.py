@@ -24,6 +24,8 @@ from app.errors import (
 )
 from app.routes.auth import router as auth_router
 from app.routes.health import router as health_router
+from app.routes.imports import router as imports_router
+from app.routes.sales import router as sales_router
 from app.routes.insights import router as insights_router
 from app.routes.integrations import router as integrations_router
 from app.routes.purchasing import router as purchasing_router
@@ -117,6 +119,8 @@ def create_app(settings: Settings | None = None, db: Database | None = None) -> 
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(v1_router)
+    app.include_router(imports_router)
+    app.include_router(sales_router)
     app.include_router(team_router)
     app.include_router(purchasing_router)
     app.include_router(reports_router)

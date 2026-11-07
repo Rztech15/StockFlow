@@ -7,6 +7,8 @@ PERMISSIONS: tuple[str, ...] = (
     "inventory.write",
     "purchasing.read",
     "purchasing.write",
+    "sales.read",
+    "sales.write",
     "reports.read",
     "members.read",
     "members.manage",
@@ -27,9 +29,12 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "owner": frozenset(PERMISSIONS),
     "admin": frozenset(PERMISSIONS),
     "manager": frozenset(PERMISSIONS) - {"members.manage", "settings.manage"},
-    # Staff can look things up and record stock movements, but cannot edit the catalogue
-    # or see reports.
-    "staff": frozenset({"catalog.read", "inventory.read", "inventory.write", "purchasing.read"}),
+    # Staff can look things up, record stock movements and take sales orders, but cannot edit the
+    # catalogue or see reports.
+    "staff": frozenset({
+        "catalog.read", "inventory.read", "inventory.write", "purchasing.read",
+        "sales.read", "sales.write",
+    }),
     "viewer": _READ_ONLY,
 }
 
@@ -43,7 +48,8 @@ def permissions_for_role(role: object) -> frozenset[str]:
 # API keys act with a fixed, limited set of permissions (never members or settings).
 API_SCOPES: dict[str, frozenset[str]] = {
     "read": _READ_ONLY,
-    "readwrite": _READ_ONLY | {"catalog.write", "inventory.write", "purchasing.write"},
+    "readwrite": _READ_ONLY
+    | {"catalog.write", "inventory.write", "purchasing.write", "sales.write"},
 }
 
 

@@ -72,8 +72,8 @@ def check_limit(conn: Connection, tenant: TenantContext, resource: str) -> None:
     if current >= limit:
         raise AppError(
             status.HTTP_402_PAYMENT_REQUIRED,
+            "plan-limit",
             "Plan Limit Reached",
             f"The {plan} plan allows up to {limit} {resource.replace('_', ' ')}. "
             "Ask the workspace administrator to upgrade the plan.",
-            "plan-limit",
         )

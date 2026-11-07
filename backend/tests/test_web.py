@@ -35,3 +35,26 @@ def test_brand_assets_are_served_only_from_the_allow_list():
     assert logo.status_code == icon.status_code == 200
     assert logo.headers["content-type"].startswith("image/svg+xml")
     assert secret.status_code == other.status_code == 404
+
+
+def test_import_dialog_and_3d_stage_are_in_the_page_without_inline_or_remote_code():
+    with make_client() as client:
+        page = client.get("/")
+        script = client.get("/app.js")
+    for needle in ('id="import-dialog"', 'id="import-file"', 'id="stage"', 'id="import-open"'):
+        assert needle in page.text
+    assert "/api/v1/products/import" in script.text
+    assert "eval(" not in script.text
+    # The strict CSP allows no remote code, so the script must not reference any.
+    assert "http://" not in script.text and "https://" not in script.text
+
+
+def test_assistant_and_calculator_tabs_load_their_script_from_our_own_origin():
+    with make_client() as client:
+        page = client.get("/")
+        tools = client.get("/tools.js")
+    for needle in ('data-view="assistant"', 'data-view="calculator"', 'id="chat-form"',
+                   'id="calc-grid"', '<script src="/tools.js"></script>'):
+        assert needle in page.text
+    assert tools.status_code == 200 and "javascript" in tools.headers["content-type"]
+    assert "StockFlowTools" in tools.text and "innerHTML" not in tools.text

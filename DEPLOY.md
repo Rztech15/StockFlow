@@ -4,6 +4,21 @@
 > but **never executed against PostgreSQL**; the unit and database tests have not been run. Do step 1
 > before you rely on it. If a test fails, send me the output and I will fix it.
 
+## 0. Nothing to run on your computer? Let GitHub test it
+
+Every upload to GitHub (every "push") starts the workflow **Full tests (with PostgreSQL)**
+(`.github/workflows/full-tests.yml`). It builds a throw-away PostgreSQL that exists only for that run,
+creates the roles, applies every migration and runs all tests (unit, database, tenant isolation, RLS
+guard, browser code). It never touches Neon or any real database.
+
+1. Open your repository on github.com and tap **Actions**.
+2. Open the newest run of **Full tests (with PostgreSQL)**.
+3. A green tick means everything passed. A red cross means a step failed: open that step, take a
+   screenshot of the red text and send it to Claude.
+
+Note: GitHub's "Upload files" does not unzip a .zip. Unzip it first, then upload the files and folders
+inside (keep the `.github` folder, it holds the workflows).
+
 ## 1. Verify locally (one command at a time, inside `backend`, venv active)
 
 1. Put your **development** Neon hostname in `.env` as `TEST_DATABASE_HOST=ep-xxxx.region.aws.neon.tech`
@@ -66,12 +81,15 @@ Deploy, then open the site, create an account and log in. Preview deployments ha
 Create a key under Settings, then: `curl -H "Authorization: Bearer sf_..." https://<your-site>/api/v1/products`.
 Read keys can only read; read/write keys can also create products, movements, suppliers and orders. Keys can never
 manage members or settings. CSV: `/api/v1/export/products.csv` and `/api/v1/export/movements.csv`.
+Bulk import: `POST /api/v1/products/import` with `{"rows": [...], "dry_run": true}` (max 1,000 rows; needs
+`catalog.write` and `inventory.write`). Rows that already exist (same SKU) are updated, stock differences are
+written to the ledger, bad rows are reported without stopping the others. Excel is not read directly: save as CSV.
 
 ## Known limits (not built)
 - Direct QuickBooks/Xero/Shopify/WooCommerce connectors, webhooks and online payments (they need your own
   accounts, OAuth apps or API credentials). API keys and CSV exports are the integration points until then.
 - Email: notifications are in-app only; no email verification, password reset or email invitations.
 - A real AI model for insights (would need an API key and your decision to send inventory data to a third party).
-- Per-IP rate limiting, product prices/costs and stock valuation, CSV import, foreign keys from products and
+- Per-IP rate limiting, product prices/costs and stock valuation, foreign keys from products and
   stock movements to workspaces, a session clean-up job. The Docker image does not include the dashboard files.
 Vercel's build settings were not verified by me; if the first deploy fails, send me the build log.

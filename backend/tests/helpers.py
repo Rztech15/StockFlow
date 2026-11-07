@@ -49,7 +49,8 @@ def app_conn() -> psycopg.Connection:
 
 def reset_inventory() -> None:
     with owner_conn() as conn:  # TRUNCATE is not subject to RLS; the owner may run it
-        conn.execute("TRUNCATE TABLE public.stock_movements, public.products")
+        # CASCADE: purchase and sales order items reference products
+        conn.execute("TRUNCATE TABLE public.stock_movements, public.products CASCADE")
 
 
 def sqlstate_of(fn: Callable[[], object]) -> str | None:

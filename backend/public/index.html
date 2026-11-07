@@ -49,14 +49,22 @@
       <nav class="tabs nav">
         <button class="tab active" type="button" data-view="inventory">Inventory</button>
         <button class="tab" type="button" data-view="purchasing">Purchasing</button>
+        <button class="tab" type="button" data-view="sales">Sales</button>
         <button class="tab" type="button" data-view="insights">Insights</button>
         <button class="tab" type="button" data-view="reports">Reports</button>
         <button class="tab" type="button" data-view="team">Team</button>
+        <button class="tab" type="button" data-view="assistant">Assistant</button>
+        <button class="tab" type="button" data-view="calculator">Calculator</button>
         <button class="tab" type="button" data-view="settings">Settings</button>
       </nav>
 
       <div id="view-inventory" data-panel>
         <div id="summary" class="cards"></div>
+        <div id="stage-card" class="card" hidden>
+          <h2>Stock levels in 3D</h2>
+          <p class="muted">Each bar is a product (up to 12, most stock first). Blue is healthy, orange is low, red is out. It follows your search and filters. Drag sideways to rotate.</p>
+          <canvas id="stage" class="stage" role="img" aria-label="3D bars showing the stock level of each product"></canvas>
+        </div>
         <div class="card">
           <div class="row">
             <h2>Products</h2>
@@ -68,6 +76,7 @@
                 <option value="low">Low stock</option>
                 <option value="out">Out of stock</option>
               </select>
+              <button id="import-open" class="btn ghost" type="button" hidden>Import file</button>
               <button id="add-product" class="btn" type="button">Add product</button>
             </div>
           </div>
@@ -111,6 +120,40 @@
             </table>
           </div>
           <p id="suppliers-empty" class="muted" hidden>No suppliers yet.</p>
+        </div>
+      </div>
+
+      <div id="view-sales" data-panel hidden>
+        <div class="card">
+          <div class="row"><h2>Sales orders</h2><button id="new-sale" class="btn" type="button" hidden>New order</button></div>
+          <p class="muted">An open order reserves its stock, so the same units cannot be sold twice. Shipping it takes the units out of stock.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Customer</th><th>Items</th><th>Status</th><th></th></tr></thead>
+              <tbody id="sales-body"></tbody>
+            </table>
+          </div>
+          <p id="sales-empty" class="muted" hidden>No sales orders yet.</p>
+        </div>
+        <div class="card">
+          <h2>Availability</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Product</th><th class="num">On hand</th><th class="num">Reserved</th><th class="num">Available</th></tr></thead>
+              <tbody id="availability-body"></tbody>
+            </table>
+          </div>
+          <p id="availability-empty" class="muted" hidden>No products yet.</p>
+        </div>
+        <div class="card">
+          <div class="row"><h2>Customers</h2><button id="new-customer" class="btn" type="button" hidden>Add customer</button></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th class="num">Open orders</th></tr></thead>
+              <tbody id="customers-body"></tbody>
+            </table>
+          </div>
+          <p id="customers-empty" class="muted" hidden>No customers yet.</p>
         </div>
       </div>
 
@@ -201,6 +244,24 @@
           </form>
         </div>
       </div>
+      <div id="view-assistant" data-panel hidden>
+        <div class="card">
+          <h2>Ask StockFlow</h2>
+          <p class="muted">Answers use fixed rules on your own records. It is not a language model and it never changes your data.</p>
+          <div id="chat-log" class="chat" aria-live="polite"></div>
+          <div id="chat-chips" class="row gap wrap"></div>
+          <form id="chat-form" class="row gap">
+            <input id="chat-input" type="text" maxlength="200" placeholder="Ask about stock, reorders or sales" aria-label="Your question" autocomplete="off">
+            <button class="btn" type="submit">Ask</button>
+          </form>
+        </div>
+      </div>
+
+      <div id="view-calculator" data-panel hidden>
+        <div id="calc-grid" class="calcs"></div>
+        <p class="muted">Amounts are rounded to 2 decimals, half up.</p>
+      </div>
+
       <div id="view-settings" data-panel hidden>
         <div class="card"><h2>Plan and usage</h2><div id="plan-box"></div></div>
         <div class="card">
@@ -278,6 +339,34 @@
     </form>
   </dialog>
 
+  <dialog id="import-dialog" class="wide">
+    <div class="form">
+      <h3>Import products</h3>
+      <label class="drop" id="import-drop">
+        <strong>Choose a file or drop it here</strong>
+        <span class="muted">CSV or JSON, up to 1,000 rows and 2 MB. From Excel: Save As, then CSV.</span>
+        <input id="import-file" type="file" accept=".csv,.txt,.json" class="visually-hidden">
+      </label>
+      <p id="import-info" class="muted"></p>
+      <p id="import-error" class="error" hidden></p>
+      <div id="import-map" class="map" hidden></div>
+      <div id="import-result" hidden>
+        <p id="import-summary"></p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th class="num">Line</th><th>SKU</th><th>Name</th><th>Result</th><th>Notes</th></tr></thead>
+            <tbody id="import-rows"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="row gap end">
+        <button id="import-cancel" class="btn ghost" type="button">Cancel</button>
+        <button id="import-check" class="btn" type="button" hidden>Check file</button>
+        <button id="import-run" class="btn" type="button" hidden>Import</button>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="supplier-dialog">
     <form id="supplier-form" class="form" method="dialog">
       <h3>Add supplier</h3>
@@ -308,6 +397,37 @@
     </form>
   </dialog>
 
+  <dialog id="customer-dialog">
+    <form id="customer-form" class="form" method="dialog">
+      <h3>Add customer</h3>
+      <label>Name <input name="name" required maxlength="160"></label>
+      <label>Email <input name="email" type="email" maxlength="254"></label>
+      <label>Phone <input name="phone" maxlength="40"></label>
+      <label>Notes <textarea name="notes" maxlength="2000" rows="2"></textarea></label>
+      <p id="customer-error" class="error" hidden></p>
+      <div class="row gap end">
+        <button id="customer-cancel" class="btn ghost" type="button">Cancel</button>
+        <button class="btn" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="sale-dialog">
+    <form id="sale-form" class="form" method="dialog">
+      <h3>New sales order</h3>
+      <label>Customer <select id="sale-customer" required></select></label>
+      <label>Note <input name="note" maxlength="1000"></label>
+      <div id="sale-lines" class="form"></div>
+      <button id="sale-add-line" class="btn ghost small" type="button">+ Add product line</button>
+      <p id="sale-error" class="error" hidden></p>
+      <div class="row gap end">
+        <button id="sale-cancel" class="btn ghost" type="button">Cancel</button>
+        <button class="btn" type="submit">Create order</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/tools.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
