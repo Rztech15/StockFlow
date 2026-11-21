@@ -16,5 +16,5 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
       - run: python -m ruff check .
-      # Database tests are NOT run here; run them locally against the Neon dev branch (see DEPLOY.md).
+      # Database tests run in full-tests.yml (a throw-away PostgreSQL). They never run against Neon from CI.
       - run: python -m pytest -m "not db" -q

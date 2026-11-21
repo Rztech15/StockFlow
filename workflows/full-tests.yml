@@ -1,0 +1,68 @@
+name: Full tests (with PostgreSQL)
+
+# Runs EVERYTHING on a throw-away PostgreSQL that lives only for this run, so nothing has to be run
+# on your own computer. It never touches Neon or any real database.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  full:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -e ".[dev]"
+
+      - name: Create a throw-away .env that points at the CI database only
+        run: |
+          python -m scripts.init_env
+          sed -i 's|^TEST_DATABASE_HOST=.*|TEST_DATABASE_HOST=localhost|' ../.env
+          sed -i 's|^BOOTSTRAP_DATABASE_URL=.*|BOOTSTRAP_DATABASE_URL=postgresql://postgres:ci-only-password@localhost:5432/postgres|' ../.env
+
+      - name: Create database roles
+        run: python -m scripts.bootstrap_db
+      - name: Apply migrations
+        run: python -m alembic upgrade head
+
+      # Every test step runs even if an earlier one failed, so you see all problems at once.
+      - name: Code style (ruff)
+        if: ${{ !cancelled() }}
+        run: python -m ruff check .
+      - name: Unit tests
+        if: ${{ !cancelled() }}
+        run: python -m pytest -m "not db" -q --tb=short
+      - name: Database tests
+        if: ${{ !cancelled() }}
+        run: python -m pytest -m "db and not rls and not guard" -q --tb=short
+      - name: Tenant isolation tests
+        if: ${{ !cancelled() }}
+        run: python -m pytest -m rls -q --tb=short
+      - name: Row-level security guard
+        if: ${{ !cancelled() }}
+        run: python -m pytest -m guard -q --tb=short
+      - name: Browser code tests (Node)
+        if: ${{ !cancelled() }}
+        run: node --test tests/js/tools.test.mjs tests/js/app.smoke.test.mjs
