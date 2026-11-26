@@ -795,36 +795,40 @@ function labelTables() {
 
 /* ---------- 3D stock bars (canvas, no libraries, works under the strict CSP) ---------- */
 
-const stage = { items: [], angle: 0.6, drag: false, lastX: 0, idleAt: 0, running: false, ghost: false, scale: 0 };
+function newStage(canvas, card) {
+  return { canvas, card, items: [], angle: 0.6, drag: false, lastX: 0, idleAt: 0, running: false, ghost: false, scale: 0 };
+}
+const stage = newStage("stage", "stage-card");
+const dashStage = newStage("dash-stage", "dash-stage-card");
 const STAGE_COLORS = { ok: [92, 140, 255], low: [255, 168, 64], out: [236, 88, 88], ghost: [140, 165, 225] };
 
-function setStage(products) {
+function setStage(products, st = stage) {
   const list = products.slice().sort((a, b) => b.quantity - a.quantity).slice(0, 12);
   const max = Math.max(1, ...list.map((p) => p.quantity));
-  const before = new Map(stage.items.map((i) => [i.id, i]));
-  stage.ghost = list.length === 0;
-  stage.items = stage.ghost
+  const before = new Map(st.items.map((i) => [i.id, i]));
+  st.ghost = list.length === 0;
+  st.items = st.ghost
     ? [0.5, 0.85, 0.4, 0.7, 0.3, 0.6].map((t, i) => ({ id: "g" + i, label: "", qty: 0, h: 0, target: t, status: "ghost" }))
     : list.map((p) => ({
       id: p.id, label: p.sku, qty: p.quantity, h: before.has(p.id) ? before.get(p.id).h : 0,
       target: Math.max(p.quantity / max, p.quantity === 0 ? 0.05 : 0.08),
       status: p.quantity === 0 ? "out" : p.quantity <= p.minimum_stock ? "low" : "ok",
     }));
-  $("stage-card").hidden = false;
-  if (!stage.running) { stage.running = true; requestAnimationFrame(drawStage); }
+  $(st.card).hidden = false;
+  if (!st.running) { st.running = true; requestAnimationFrame((t) => drawStage(st, t)); }
 }
 
 function shade(rgb, k) {
   return "rgb(" + rgb.map((c) => Math.max(0, Math.min(255, Math.round(c * k)))).join(",") + ")";
 }
 
-function drawStage(now) {
-  const canvas = $("stage");
-  if (!canvas || canvas.offsetParent === null || !stage.items.length) { stage.running = false; return; }
+function drawStage(st, now) {
+  const canvas = $(st.canvas);
+  if (!canvas || canvas.offsetParent === null || !st.items.length) { st.running = false; return; }
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
-  if (!w || !h) { requestAnimationFrame(drawStage); return; }
+  if (!w || !h) { requestAnimationFrame((t) => drawStage(st, t)); return; }
   if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
@@ -834,12 +838,12 @@ function drawStage(now) {
   ctx.clearRect(0, 0, w, h);
   const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   // Idle motion is a gentle sway, so a wide row of bars stays wide. Dragging turns it all the way round.
-  const idle = !still && !stage.drag && now - stage.idleAt > 2500;
-  const angle = stage.angle + (idle ? 0.5 * Math.sin(now / 2400) : 0);
+  const idle = !still && !st.drag && now - st.idleAt > 2500;
+  const angle = st.angle + (idle ? 0.5 * Math.sin(now / 2400) : 0);
 
   // Orbit camera: yaw by `angle`, fixed pitch. The scale is fitted every frame to the real outline of the
   // scene, so it is as large as possible and never clipped.
-  const n = stage.items.length;
+  const n = st.items.length;
   const perRow = w / h > 2.2 ? 6 : w / h > 1.4 ? 4 : 3;
   const rows = Math.ceil(n / Math.min(perRow, n));
   const cols = Math.ceil(n / rows);
@@ -848,7 +852,7 @@ function drawStage(now) {
   const barH = 2.1;
   const SIN = 0.46;
   const COS = 0.89;
-  const pad = 24;
+  const pad = 44; // room above the tallest bar for its tag
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
   const rot = (x, z) => [x * cos - z * sin, x * sin + z * cos];
@@ -860,8 +864,8 @@ function drawStage(now) {
   const spanX = Math.max(...xs) - Math.min(...xs);
   const spanY = Math.max(...zs) - Math.min(...zs) + barH * COS;
   const target = Math.min((w * 0.92) / spanX, (h - pad - 20) / spanY, 120);
-  stage.scale = stage.scale ? stage.scale + (target - stage.scale) * (still ? 1 : 0.12) : target;
-  const scale = stage.scale;
+  st.scale = st.scale ? st.scale + (target - st.scale) * (still ? 1 : 0.12) : target;
+  const scale = st.scale;
   const offX = w / 2 - ((Math.max(...xs) + Math.min(...xs)) / 2) * scale;
   const offY = (h - pad - spanY * scale) / 2 + (barH * COS - Math.min(...zs)) * scale;
   const proj = (x, z, y) => [offX + x * scale, offY + (z * SIN - y * barH * COS) * scale];
@@ -891,7 +895,7 @@ function drawStage(now) {
   poly(floor.map(([x, z]) => proj(x, z, 0)),
     lightText ? "rgba(255,255,255,.045)" : "rgba(27,39,66,.05)", lightText ? "rgba(255,255,255,.14)" : "rgba(27,39,66,.14)");
 
-  const placed = stage.items.map((it, i) => {
+  const placed = st.items.map((it, i) => {
     it.h += (it.target - it.h) * (still ? 1 : 0.1);
     const [x, z] = rot((i % cols - (cols - 1) / 2) * gap, (Math.floor(i / cols) - (rows - 1) / 2) * gap);
     return { it, x, z };
@@ -933,23 +937,23 @@ function drawStage(now) {
     ctx.textAlign = "center";
     ctx.fillText(label, px, py + 1);
   };
-  if (stage.ghost) {
+  if (st.ghost) {
     tag("Add your first product to see it here in 3D", w / 2, h / 2, true);
   } else {
     [...placed].reverse().forEach((b) => tag(b.it.label + " \u00b7 " + b.it.qty, b.topX, b.topY - 6, true));
   }
-  requestAnimationFrame(drawStage);
+  requestAnimationFrame((t) => drawStage(st, t));
 }
 
-function bindStage() {
-  const canvas = $("stage");
-  canvas.addEventListener("pointerdown", (e) => { stage.drag = true; stage.lastX = e.clientX; canvas.setPointerCapture(e.pointerId); });
+function bindStage(st) {
+  const canvas = $(st.canvas);
+  canvas.addEventListener("pointerdown", (e) => { st.drag = true; st.lastX = e.clientX; canvas.setPointerCapture(e.pointerId); });
   canvas.addEventListener("pointermove", (e) => {
-    if (!stage.drag) return;
-    stage.angle -= (e.clientX - stage.lastX) * 0.01;
-    stage.lastX = e.clientX;
+    if (!st.drag) return;
+    st.angle -= (e.clientX - st.lastX) * 0.01;
+    st.lastX = e.clientX;
   });
-  const stop = () => { stage.drag = false; stage.idleAt = performance.now(); };
+  const stop = () => { st.drag = false; st.idleAt = performance.now(); };
   canvas.addEventListener("pointerup", stop);
   canvas.addEventListener("pointercancel", stop);
 }
@@ -972,7 +976,8 @@ function bindImport() {
   new MutationObserver(() => {
     if (!pending) pending = requestAnimationFrame(() => { pending = 0; labelTables(); });
   }).observe(document.body, { childList: true, subtree: true });
-  bindStage();
+  bindStage(stage);
+  bindStage(dashStage);
 }
 
 /* ---------- calculator and assistant tabs (logic lives in tools.js) ---------- */
@@ -1475,6 +1480,7 @@ async function loadDashboard() {
     pSeries = counts.slice(1);
   }
   setKpi("products", s.products, pDelta, pSeries);
+  if (products) setStage(products, dashStage);
 
   // Units in stock, worked backwards from today's level using the daily movement totals
   let uDelta = null;

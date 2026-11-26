@@ -21,6 +21,8 @@ const SAME = {
   "JSON inside an object": "products-wrapped.json", "JSON Lines": "products.jsonl", "JSON list of lists": "products-rows.json",
   "Markdown table": "products.md", "Excel (openpyxl)": "products-openpyxl.xlsx", "Excel saved by LibreOffice": "products-libreoffice.xlsx",
   "OpenDocument by LibreOffice": "products-libreoffice.ods", "OpenDocument by odfpy": "products-odfpy.ods", "Word table": "products.docx",
+  "PowerPoint table": "products.pptx", "PDF from Word": "products.pdf", "PDF from a report library": "products-reportlab.pdf",
+  "PDF from a spreadsheet (right aligned numbers)": "products-calc.pdf",
 };
 for (const [label, file] of Object.entries(SAME)) {
   test("reads " + label, async () => {
@@ -36,6 +38,11 @@ test("a sparse Excel sheet keeps cells where they are", async () => {
   assert.deepEqual(table.at(-1), ["", "", "", "", "", "", "stray far cell"]);
 });
 
+test("a PDF is recognised by its content even with a wrong name", async () => {
+  assert.equal((await I.parseBuffer("data.txt", read("products-reportlab.pdf"))).kind, "PDF");
+  assert.equal((await I.parseBuffer("slides.zip", read("products.pptx"))).kind, "PowerPoint");
+});
+
 test("the file name does not matter: the content decides", async () => {
   assert.equal((await I.parseBuffer("export.dat", read("products-libreoffice.xlsx"))).kind, "Excel");
   assert.equal((await I.parseBuffer("noextension", read("products.docx"))).kind, "Word");
@@ -47,11 +54,12 @@ test("the file name does not matter: the content decides", async () => {
 test("formats that cannot be read say so and how to fix it", async () => {
   const ask = (name, file) => I.parseBuffer(name, read(file)).then(() => "read", (e) => e.message);
   assert.match(await ask("old.xls", "products-openpyxl.xls"), /Old Excel \(\.xls\).*\.xlsx/);
-  assert.match(await ask("list.pdf", "products.pdf"), /PDF files cannot be read.*CSV or Excel/);
   assert.match(await ask("photo.png", "scan.png"), /Pictures and scans/);
   assert.match(await ask("renamed.csv", "scan.png"), /Pictures and scans/, "a picture renamed to .csv is still a picture");
   assert.match(await ask("old.doc", "products-openpyxl.xls"), /Old Word \(\.doc\).*\.docx/);
-  assert.match(await ask("old.ppt", "products-openpyxl.xls"), /Slide files/);
+  assert.match(await ask("old.ppt", "products-openpyxl.xls"), /Old PowerPoint \(\.ppt\).*\.pptx/);
+  assert.match(await ask("scan.pdf", "no-text.pdf"), /no text that can be read.*scan/);
+  assert.match(await ask("report.pdf", "no-table.pdf"), /No table with column names was found in that PDF/);
   assert.equal(await ask("export.xls", "products.csv"), "read", "an .xls that is really a text table is read by its content");
   assert.equal(await ask("export.pdf", "products.csv"), "read", "the same goes for a text file with a misleading name");
 });

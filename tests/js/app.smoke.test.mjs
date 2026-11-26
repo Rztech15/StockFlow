@@ -124,7 +124,7 @@ test("import: a CSV is mapped, checked, then imported, and bad files are refused
   assert.equal(byId["import-cancel"].textContent, "Close");
   const refuse = async (f) => { await run("loadImportFile")(f); return byId["import-error"].textContent; };
   assert.match(await refuse(file("a.xls", [0xd0, 0xcf, 0x11, 0xe0, 0, 0, 0, 0])), /Old Excel \(\.xls\)/);
-  assert.match(await refuse(file("a.pdf", "%PDF-1.4 ...")), /PDF files cannot be read/);
+  assert.match(await refuse(file("a.pdf", "%PDF-1.4 ...")), /That PDF could not be read/);
   assert.match(await refuse(file("a.csv", "", 0)), /empty/);
   assert.match(await refuse(file("a.csv", "x", 6e6)), /larger than 5 MB/);
   assert.match(await refuse(file("a.json", "{bad")), /not valid JSON/);
@@ -138,12 +138,12 @@ test("3D stage colours bars by status, draws without errors and shows an invitat
   run("setStage")([{ id: "1", sku: "A", quantity: 10, minimum_stock: 3 }, { id: "2", sku: "B", quantity: 0, minimum_stock: 3 }, { id: "3", sku: "C", quantity: 2, minimum_stock: 3 }]);
   assert.equal(run("stage.items.map(i => i.label + ':' + i.status).join(' ')"), "A:ok C:low B:out");
   Object.assign(byId["stage"], { offsetParent: {}, clientWidth: 400, clientHeight: 260 });
-  run("drawStage(5000)");
+  run("drawStage(stage, 5000)");
   assert.ok(run("stage.items.every(i => i.h > 0)"));
   run("setStage")([]);
   assert.equal(run("stage.ghost"), true, "with no products the card shows an invitation instead of disappearing");
   assert.equal(byId["stage-card"].hidden, false);
-  run("drawStage(6000)");
+  run("drawStage(stage, 6000)");
 });
 
 test("sales: lists render, Ship and Cancel call the API, and a new order posts its lines", async () => {
@@ -237,6 +237,7 @@ test("dashboard: KPIs, trends, chart and activity are built from the API data", 
   assert.equal(byId["upgrade-card"].hidden, false, "free plan shows the upgrade card");
   assert.equal(byId["promo"].hidden, false);
   assert.equal(byId["welcome-title"].textContent, "Welcome back!", "no email stored, so no name");
+  assert.equal(run("dashStage.items.length"), 3, "the dashboard has its own 3D scene with every product");
 });
 
 test("dashboard: a role without report access gets false so the app falls back to the inventory", async () => {

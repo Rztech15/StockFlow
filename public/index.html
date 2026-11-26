@@ -107,6 +107,11 @@
             <svg id="spark-out" class="spark" role="img" aria-label="Out of stock products over the last 7 days" hidden></svg>
           </article>
         </div>
+        <section id="dash-stage-card" class="card">
+          <div class="card-head"><h3>Stock levels in 3D</h3></div>
+          <p class="muted">Each bar is a product: blue is healthy, orange is low, red is out. Drag sideways to rotate.</p>
+          <canvas id="dash-stage" class="stage" role="img" aria-label="3D bars showing the stock level of each product"></canvas>
+        </section>
         <div class="dash-grid">
           <section class="card">
             <div class="card-head">
@@ -457,7 +462,7 @@
       <h3>Import products</h3>
       <label class="drop" id="import-drop">
         <strong>Choose a file or drop it here</strong>
-        <span class="muted">Excel (.xlsx), CSV, JSON, XML, HTML, Word (.docx) tables, OpenDocument (.ods), Markdown and more. Up to 1,000 rows and 5 MB.</span>
+        <span class="muted">Excel (.xlsx), CSV, JSON, XML, HTML, Word (.docx), PowerPoint (.pptx) and PDF tables, OpenDocument (.ods), Markdown and more. A PDF must hold real text, not a scan. Up to 1,000 rows and 5 MB.</span>
         <input id="import-file" type="file" class="visually-hidden">
       </label>
       <p id="import-info" class="muted"></p>
