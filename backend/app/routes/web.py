@@ -44,6 +44,11 @@ def script() -> FileResponse:
     return _serve("app.js", "text/javascript; charset=utf-8")
 
 
+@router.get("/importers.js")
+def importers_script() -> FileResponse:
+    return _serve("importers.js", "text/javascript; charset=utf-8")
+
+
 @router.get("/tools.js")
 def tools_script() -> FileResponse:
     return _serve("tools.js", "text/javascript; charset=utf-8")
