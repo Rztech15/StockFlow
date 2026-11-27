@@ -66,6 +66,9 @@ function show(view) {
   $("auth-view").hidden = view !== "auth";
   $("app-view").hidden = view !== "app";
   $("userbar").hidden = view !== "app";
+  ["search-box", "bell-top", "user-chip", "menu-btn", "bottombar"].forEach((id) => { $(id).hidden = view !== "app"; });
+  if (view !== "app") document.querySelector(".topbar").classList.remove("menu-open");
+  layoutHeader();
 }
 
 function cell(text, className) {
@@ -137,7 +140,7 @@ async function boot() {
       $("new-workspace").hidden = true;
     }
     await Promise.all([loadCategories(), loadNotifications()]);
-    await showView("inventory");
+    await showView("dashboard");
   } catch (err) {
     show("auth");
     if (err.status !== 401) banner(err.message);
@@ -163,7 +166,7 @@ async function afterWorkspaceChange() {
   info("");
   await loadWorkspaces();
   await Promise.all([loadCategories(), loadNotifications()]);
-  await showView("inventory");
+  await showView("dashboard");
 }
 
 /* ---------- views ---------- */
@@ -172,9 +175,20 @@ async function showView(view) {
   state.view = view;
   document.querySelectorAll("[data-panel]").forEach((p) => { p.hidden = p.id !== "view-" + view; });
   document.querySelectorAll("[data-view]").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
+  document.querySelectorAll("[data-quick]").forEach((b) => b.classList.toggle("active", b.dataset.quick === view));
+  if (view === "dashboard") {
+    const ok = await loadDashboard();
+    if (!ok) {
+      document.querySelector('[data-view="dashboard"]').hidden = true;
+      document.querySelector('[data-quick="dashboard"]').hidden = true;
+      await showView("inventory");
+    }
+    return;
+  }
   if (view === "inventory") await Promise.all([loadSummary(), loadProducts(), loadMovements()]);
   if (view === "purchasing") await Promise.all([loadOrders(), loadSuppliers()]);
   if (view === "sales") await refreshSales();
+  if (view === "planning") await loadPlanning(false);
   if (view === "reports") await loadReports();
   if (view === "insights") await loadInsights();
   if (view === "team") await Promise.all([loadMembers(), loadActivity()]);
@@ -469,8 +483,7 @@ async function loadNotifications() {
   try {
     const data = await api("GET", "/api/v1/notifications");
     state.alerts = data.items;
-    $("bell-count").textContent = String(data.count);
-    $("bell-count").hidden = data.count === 0;
+    ["bell-top-count", "bottom-count"].forEach((id) => { $(id).textContent = String(data.count); $(id).hidden = data.count === 0; });
   } catch (_) { /* alerts are optional */ }
 }
 
@@ -605,51 +618,11 @@ const IMPORT_FIELDS = [
   { key: "description", label: "Description", match: /^(desc|notes?)/i },
 ];
 const IMPORT_DETECT_ORDER = ["sku", "quantity", "minimum_stock", "unit", "description", "name"];
-const IMPORT_MAX_BYTES = 2 * 1024 * 1024;
+const IMPORTERS = window.StockFlowImport;
+const IMPORT_MAX_BYTES = 5 * 1024 * 1024;
 const IMPORT_MAX_ROWS = 1000;
 const IMPORT_SHOWN_ROWS = 200;
 const imp = { headers: [], rows: [], map: {}, ready: false };
-
-function parseCsv(text) {
-  const first = text.split(/\r?\n/, 1)[0] || "";
-  const delim = [",", ";", "\t"].map((d) => [d, first.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
-  const rows = [];
-  let row = [];
-  let cur = "";
-  let quoted = false;
-  const endRow = () => {
-    row.push(cur);
-    cur = "";
-    if (row.some((c) => c.trim() !== "")) rows.push(row);
-    row = [];
-  };
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i];
-    if (quoted) {
-      if (ch === "\"") {
-        if (text[i + 1] === "\"") { cur += "\""; i += 1; } else quoted = false;
-      } else cur += ch;
-    } else if (ch === "\"") quoted = true;
-    else if (ch === delim) { row.push(cur); cur = ""; }
-    else if (ch === "\n" || ch === "\r") {
-      if (ch === "\r" && text[i + 1] === "\n") i += 1;
-      endRow();
-    } else cur += ch;
-  }
-  endRow();
-  return rows.map((r) => r.map((c) => c.trim()));
-}
-
-function tableFromJson(text) {
-  const data = JSON.parse(text);
-  if (!Array.isArray(data) || !data.length || data.some((o) => o === null || typeof o !== "object" || Array.isArray(o))) {
-    throw new Error("A JSON file must be a list of objects, one per product.");
-  }
-  const headers = [];
-  data.forEach((o) => Object.keys(o).forEach((k) => { if (!headers.includes(k)) headers.push(k); }));
-  const flat = (v) => (v === null || v === undefined ? "" : typeof v === "object" ? "" : String(v));
-  return [headers, ...data.map((o) => headers.map((h) => flat(o[h])))];
-}
 
 function detectImportMap(headers) {
   const map = {};
@@ -699,22 +672,16 @@ function importReset() {
 async function loadImportFile(file) {
   importReset();
   if (!file) return;
-  const ext = (file.name.split(".").pop() || "").toLowerCase();
-  if (ext === "xlsx" || ext === "xls") {
-    importMessage("Excel files are not read directly. In Excel choose Save As, then CSV, and pick that file.");
-    return;
-  }
-  if (!["csv", "txt", "json"].includes(ext)) { importMessage("Unsupported file type. Use a CSV or JSON file."); return; }
   if (file.size === 0) { importMessage("That file is empty."); return; }
-  if (file.size > IMPORT_MAX_BYTES) { importMessage("That file is larger than 2 MB. Split it into smaller files."); return; }
-  let table;
+  if (file.size > IMPORT_MAX_BYTES) { importMessage("That file is larger than 5 MB. Split it into smaller files."); return; }
+  let parsed;
   try {
-    const text = (await file.text()).replace(/^\uFEFF/, "");
-    table = ext === "json" ? tableFromJson(text) : parseCsv(text);
+    parsed = await IMPORTERS.parseBuffer(file.name, await file.arrayBuffer());
   } catch (err) {
     importMessage(err instanceof SyntaxError ? "That file is not valid JSON." : err.message || "Couldn't read that file.");
     return;
   }
+  const table = parsed.table;
   if (table.length < 2) { importMessage("No data rows found. The first line must be the column names, followed by at least one row."); return; }
   if (table.length - 1 > IMPORT_MAX_ROWS) {
     importMessage("This file has " + (table.length - 1) + " rows. Split it into files of up to " + IMPORT_MAX_ROWS + " rows.");
@@ -723,7 +690,7 @@ async function loadImportFile(file) {
   imp.headers = table[0];
   imp.rows = table.slice(1);
   imp.map = detectImportMap(imp.headers);
-  $("import-info").textContent = file.name + ": " + imp.rows.length + " rows. Check that each column matches the right field.";
+  $("import-info").textContent = file.name + " (" + parsed.kind + "): " + imp.rows.length + " rows. Check that each column matches the right field.";
   renderImportMap();
 }
 
@@ -828,32 +795,40 @@ function labelTables() {
 
 /* ---------- 3D stock bars (canvas, no libraries, works under the strict CSP) ---------- */
 
-const stage = { items: [], angle: 0.6, drag: false, lastX: 0, idleAt: 0, running: false };
-const STAGE_COLORS = { ok: [92, 127, 203], low: [242, 163, 59], out: [217, 83, 79] };
+function newStage(canvas, card) {
+  return { canvas, card, items: [], angle: 0.6, drag: false, lastX: 0, idleAt: 0, running: false, ghost: false, scale: 0 };
+}
+const stage = newStage("stage", "stage-card");
+const dashStage = newStage("dash-stage", "dash-stage-card");
+const STAGE_COLORS = { ok: [92, 140, 255], low: [255, 168, 64], out: [236, 88, 88], ghost: [140, 165, 225] };
 
-function setStage(products) {
+function setStage(products, st = stage) {
   const list = products.slice().sort((a, b) => b.quantity - a.quantity).slice(0, 12);
   const max = Math.max(1, ...list.map((p) => p.quantity));
-  const before = new Map(stage.items.map((i) => [i.id, i]));
-  stage.items = list.map((p) => ({
-    id: p.id, label: p.sku, h: before.has(p.id) ? before.get(p.id).h : 0,
-    target: Math.max(p.quantity / max, p.quantity === 0 ? 0.04 : 0.07),
-    status: p.quantity === 0 ? "out" : p.quantity <= p.minimum_stock ? "low" : "ok",
-  }));
-  $("stage-card").hidden = list.length === 0;
-  if (!stage.running && list.length) { stage.running = true; requestAnimationFrame(drawStage); }
+  const before = new Map(st.items.map((i) => [i.id, i]));
+  st.ghost = list.length === 0;
+  st.items = st.ghost
+    ? [0.5, 0.85, 0.4, 0.7, 0.3, 0.6].map((t, i) => ({ id: "g" + i, label: "", qty: 0, h: 0, target: t, status: "ghost" }))
+    : list.map((p) => ({
+      id: p.id, label: p.sku, qty: p.quantity, h: before.has(p.id) ? before.get(p.id).h : 0,
+      target: Math.max(p.quantity / max, p.quantity === 0 ? 0.05 : 0.08),
+      status: p.quantity === 0 ? "out" : p.quantity <= p.minimum_stock ? "low" : "ok",
+    }));
+  $(st.card).hidden = false;
+  if (!st.running) { st.running = true; requestAnimationFrame((t) => drawStage(st, t)); }
 }
 
 function shade(rgb, k) {
   return "rgb(" + rgb.map((c) => Math.max(0, Math.min(255, Math.round(c * k)))).join(",") + ")";
 }
 
-function drawStage(now) {
-  const canvas = $("stage");
-  if (!canvas || canvas.offsetParent === null || !stage.items.length) { stage.running = false; return; }
+function drawStage(st, now) {
+  const canvas = $(st.canvas);
+  if (!canvas || canvas.offsetParent === null || !st.items.length) { st.running = false; return; }
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
+  if (!w || !h) { requestAnimationFrame((t) => drawStage(st, t)); return; }
   if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
@@ -862,64 +837,123 @@ function drawStage(now) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
   const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (!still && !stage.drag && now - stage.idleAt > 2500) stage.angle += 0.004;
-  const n = stage.items.length;
-  const cols = Math.min(4, n);
-  const rows = Math.ceil(n / cols);
+  // Idle motion is a gentle sway, so a wide row of bars stays wide. Dragging turns it all the way round.
+  const idle = !still && !st.drag && now - st.idleAt > 2500;
+  const angle = st.angle + (idle ? 0.5 * Math.sin(now / 2400) : 0);
+
+  // Orbit camera: yaw by `angle`, fixed pitch. The scale is fitted every frame to the real outline of the
+  // scene, so it is as large as possible and never clipped.
+  const n = st.items.length;
+  const perRow = w / h > 2.2 ? 6 : w / h > 1.4 ? 4 : 3;
+  const rows = Math.ceil(n / Math.min(perRow, n));
+  const cols = Math.ceil(n / rows);
   const gap = 1.5;
-  const scale = Math.min(w / ((cols + rows) * gap * 0.9 + 2), h / 5.2);
-  const cx = w / 2;
-  const baseY = h * 0.64;
-  const tall = h * 0.5;
-  const cos = Math.cos(stage.angle);
-  const sin = Math.sin(stage.angle);
+  const half = 0.42;
+  const barH = 2.1;
+  const SIN = 0.46;
+  const COS = 0.89;
+  const pad = 44; // room above the tallest bar for its tag
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const rot = (x, z) => [x * cos - z * sin, x * sin + z * cos];
+  const fx = ((cols - 1) / 2) * gap + half + 0.35;
+  const fz = ((rows - 1) / 2) * gap + half + 0.35;
+  const floor = [[-fx, -fz], [fx, -fz], [fx, fz], [-fx, fz]].map(([x, z]) => rot(x, z));
+  const xs = floor.map((p) => p[0]);
+  const zs = floor.map((p) => p[1] * SIN);
+  const spanX = Math.max(...xs) - Math.min(...xs);
+  const spanY = Math.max(...zs) - Math.min(...zs) + barH * COS;
+  const target = Math.min((w * 0.92) / spanX, (h - pad - 20) / spanY, 120);
+  st.scale = st.scale ? st.scale + (target - st.scale) * (still ? 1 : 0.12) : target;
+  const scale = st.scale;
+  const offX = w / 2 - ((Math.max(...xs) + Math.min(...xs)) / 2) * scale;
+  const offY = (h - pad - spanY * scale) / 2 + (barH * COS - Math.min(...zs)) * scale;
+  const proj = (x, z, y) => [offX + x * scale, offY + (z * SIN - y * barH * COS) * scale];
+
   const text = getComputedStyle(document.body).color;
-  const placed = stage.items.map((it, i) => {
-    it.h += (it.target - it.h) * (still ? 1 : 0.1);
-    const gx = (i % cols - (cols - 1) / 2) * gap;
-    const gz = (Math.floor(i / cols) - (rows - 1) / 2) * gap;
-    return { it, x: gx * cos - gz * sin, z: gx * sin + gz * cos };
-  }).sort((a, b) => (a.x + a.z) - (b.x + b.z));
-  const proj = (x, z, y) => [cx + (x - z) * 0.866 * scale, baseY + (x + z) * 0.5 * scale - y * tall];
-  const poly = (pts, fill) => {
+  const [tr, tg, tb] = (text.match(/\d+/g) || [255, 255, 255]).map(Number);
+  const lightText = (tr * 299 + tg * 587 + tb * 114) / 1000 > 128;
+  const pill = lightText ? "rgba(8,14,32,.62)" : "rgba(255,255,255,.78)";
+
+  const poly = (pts, fill, stroke) => {
     ctx.beginPath();
     pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
     ctx.closePath();
     ctx.fillStyle = fill;
     ctx.fill();
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke(); }
   };
-  const half = 0.42;
+  const vertical = (pts, c0, c1) => {
+    const ys = pts.map((p) => p[1]);
+    const g = ctx.createLinearGradient(0, Math.min(...ys), 0, Math.max(...ys));
+    g.addColorStop(0, c0);
+    g.addColorStop(1, c1);
+    return g;
+  };
+
+  // glass floor under the bars
+  poly(floor.map(([x, z]) => proj(x, z, 0)),
+    lightText ? "rgba(255,255,255,.045)" : "rgba(27,39,66,.05)", lightText ? "rgba(255,255,255,.14)" : "rgba(27,39,66,.14)");
+
+  const placed = st.items.map((it, i) => {
+    it.h += (it.target - it.h) * (still ? 1 : 0.1);
+    const [x, z] = rot((i % cols - (cols - 1) / 2) * gap, (Math.floor(i / cols) - (rows - 1) / 2) * gap);
+    return { it, x, z };
+  }).sort((a, b) => a.z - b.z);
+
   const corners = [[-half, -half], [half, -half], [half, half], [-half, half]];
-  placed.forEach(({ it, x, z }) => {
-    const rgb = STAGE_COLORS[it.status];
-    const c = corners.map(([dx, dz]) => [x + dx * cos - dz * sin, z + dx * sin + dz * cos]);
+  placed.forEach((b) => {
+    const { it, x, z } = b;
+    const rgb = STAGE_COLORS[it.status] || STAGE_COLORS.ghost;
+    ctx.globalAlpha = it.status === "ghost" ? 0.3 : 1;
+    const c = corners.map(([dx, dz]) => { const r = rot(dx, dz); return [x + r[0], z + r[1]]; });
     const top = c.map((p) => proj(p[0], p[1], it.h));
     const low = c.map((p) => proj(p[0], p[1], 0));
-    [[0, 1, [0, -1]], [1, 2, [1, 0]], [2, 3, [0, 1]], [3, 0, [-1, 0]]].forEach(([a, b, nrm]) => {
-      const nx = nrm[0] * cos - nrm[1] * sin;
-      const nz = nrm[0] * sin + nrm[1] * cos;
-      if (nx + nz <= 0) return;
-      poly([low[a], low[b], top[b], top[a]], shade(rgb, 0.78 + 0.16 * (nx - nz)));
+    const [bx, by] = proj(x, z, 0);
+    ctx.beginPath();
+    ctx.ellipse(bx, by + 1, scale * 0.66, scale * 0.66 * SIN, 0, 0, Math.PI * 2);
+    ctx.fillStyle = lightText ? "rgba(0,0,0,.30)" : "rgba(27,39,66,.16)";
+    ctx.fill();
+    [[0, 1, [0, -1]], [1, 2, [1, 0]], [2, 3, [0, 1]], [3, 0, [-1, 0]]].forEach(([a, d, nrm]) => {
+      const nr = rot(nrm[0], nrm[1]);
+      if (nr[1] <= 0.02) return; // faces turned away from the camera are never visible
+      const k = 0.86 - 0.16 * nr[0];
+      poly([low[a], low[d], top[d], top[a]], vertical([top[a], low[a]], shade(rgb, k + 0.12), shade(rgb, k - 0.2)));
     });
-    poly(top, shade(rgb, 1.12));
-    const [lx, ly] = proj(x, z, 0);
-    ctx.fillStyle = text;
-    ctx.font = "11px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(it.label, lx, ly + 0.9 * scale * 0.5 + 14);
+    poly(top, shade(rgb, 1.16), "rgba(255,255,255,.4)");
+    b.topX = (top[0][0] + top[2][0]) / 2;
+    b.topY = Math.min(...top.map((p) => p[1]));
   });
-  requestAnimationFrame(drawStage);
+  ctx.globalAlpha = 1;
+
+  const tag = (label, px, py, bold) => {
+    ctx.font = (bold ? "600 " : "") + "11px Poppins, system-ui, sans-serif";
+    const tw = ctx.measureText(label).width + 10;
+    ctx.fillStyle = pill;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(px - tw / 2, py - 11, tw, 16, 8); else ctx.rect(px - tw / 2, py - 11, tw, 16);
+    ctx.fill();
+    ctx.fillStyle = text;
+    ctx.textAlign = "center";
+    ctx.fillText(label, px, py + 1);
+  };
+  if (st.ghost) {
+    tag("Add your first product to see it here in 3D", w / 2, h / 2, true);
+  } else {
+    [...placed].reverse().forEach((b) => tag(b.it.label + " \u00b7 " + b.it.qty, b.topX, b.topY - 6, true));
+  }
+  requestAnimationFrame((t) => drawStage(st, t));
 }
 
-function bindStage() {
-  const canvas = $("stage");
-  canvas.addEventListener("pointerdown", (e) => { stage.drag = true; stage.lastX = e.clientX; canvas.setPointerCapture(e.pointerId); });
+function bindStage(st) {
+  const canvas = $(st.canvas);
+  canvas.addEventListener("pointerdown", (e) => { st.drag = true; st.lastX = e.clientX; canvas.setPointerCapture(e.pointerId); });
   canvas.addEventListener("pointermove", (e) => {
-    if (!stage.drag) return;
-    stage.angle -= (e.clientX - stage.lastX) * 0.01;
-    stage.lastX = e.clientX;
+    if (!st.drag) return;
+    st.angle -= (e.clientX - st.lastX) * 0.01;
+    st.lastX = e.clientX;
   });
-  const stop = () => { stage.drag = false; stage.idleAt = performance.now(); };
+  const stop = () => { st.drag = false; st.idleAt = performance.now(); };
   canvas.addEventListener("pointerup", stop);
   canvas.addEventListener("pointercancel", stop);
 }
@@ -942,7 +976,8 @@ function bindImport() {
   new MutationObserver(() => {
     if (!pending) pending = requestAnimationFrame(() => { pending = 0; labelTables(); });
   }).observe(document.body, { childList: true, subtree: true });
-  bindStage();
+  bindStage(stage);
+  bindStage(dashStage);
 }
 
 /* ---------- calculator and assistant tabs (logic lives in tools.js) ---------- */
@@ -1239,6 +1274,423 @@ function bindSales() {
   });
 }
 
+/* ---------- dashboard: welcome, KPIs with trends, stock chart, recent activity ---------- */
+
+const dash = { range: 7, last: null, drawnAt: 0 };
+const SVGNS = "http://www.w3.org/2000/svg";
+const MAX_MOVEMENTS = 500;
+
+function svgEl(tag, attrs, parent) {
+  const el = document.createElementNS(SVGNS, tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => el.setAttribute(k, String(v)));
+  if (parent) parent.append(el);
+  return el;
+}
+
+function rememberEmail(email) {
+  try { localStorage.setItem("stockflow-email", email.trim()); } catch (_) { /* private mode: the name is simply not shown */ }
+}
+function storedEmail() {
+  try { return localStorage.getItem("stockflow-email") || ""; } catch (_) { return ""; }
+}
+
+function paintIdentity() {
+  const name = TOOLS.displayName(storedEmail());
+  $("avatar").textContent = TOOLS.initials(name);
+  $("user-name").textContent = name || "Account";
+  $("welcome-title").textContent = name ? "Welcome back, " + name + "!" : "Welcome back!";
+  $("today-date").textContent = new Date().toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/* UTC day keys, oldest first, ending today: they match how the server groups movements into days. */
+function lastDays(n) {
+  const out = [];
+  for (let i = n - 1; i >= 0; i -= 1) out.push(new Date(Date.now() - i * 864e5).toISOString().slice(0, 10));
+  return out;
+}
+const endOfDay = (key) => (key === new Date().toISOString().slice(0, 10) ? Date.now() : Date.parse(key + "T23:59:59.999Z"));
+
+function drawSpark(svg, values) {
+  svg.replaceChildren();
+  const w = 120;
+  const h = 46;
+  svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+  const min = Math.min(...values);
+  const span = Math.max(...values) - min || 1;
+  const pts = values.map((v, i) => [(i / (values.length - 1)) * w, h - 6 - ((v - min) / span) * (h - 14)]);
+  const id = svg.id + "-fill";
+  const defs = svgEl("defs", {}, svg);
+  const grad = svgEl("linearGradient", { id, x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  svgEl("stop", { offset: "0%", "stop-color": "currentColor", "stop-opacity": ".35" }, grad);
+  svgEl("stop", { offset: "100%", "stop-color": "currentColor", "stop-opacity": "0" }, grad);
+  const line = TOOLS.smoothPath(pts);
+  svgEl("path", { d: line + " L" + w + " " + h + " L0 " + h + " Z", fill: "url(#" + id + ")" }, svg);
+  svgEl("path", { d: line, fill: "none", stroke: "currentColor", "stroke-width": 2.2, "stroke-linecap": "round" }, svg);
+  svg.removeAttribute("hidden");
+}
+
+function setKpi(id, value, delta, series) {
+  $("kpi-" + id).textContent = String(value);
+  const d = $("kpi-" + id + "-delta");
+  const spark = $("spark-" + id);
+  d.replaceChildren();
+  d.hidden = !delta;
+  if (delta) {
+    if (delta.dir !== "flat") {
+      const arrow = document.createElement("i");
+      arrow.className = "ico ico-" + (delta.dir === "up" ? "up" : "down");
+      d.append(arrow);
+    }
+    d.append(document.createTextNode(delta.text));
+    d.title = "Compared with 7 days ago";
+  }
+  spark.toggleAttribute("hidden", !series);
+  if (series) drawSpark(spark, series);
+}
+
+function drawOverview(values, labels) {
+  const svg = $("overview-chart");
+  svg.replaceChildren();
+  dash.last = { values, labels };
+  const W = Math.max(320, Math.min(640, Math.round(svg.getBoundingClientRect().width) || 640)); // 1 unit = 1 screen pixel, so text stays readable
+  const H = W < 480 ? 250 : 280;
+  const L = 48;
+  const R = 22;
+  const T = 24;
+  const B = 36;
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+  const scale = TOOLS.niceScale(Math.max(...values) * 1.08);
+  const x = (i) => (values.length === 1 ? L + (W - L - R) / 2 : L + (i / (values.length - 1)) * (W - L - R));
+  const y = (v) => T + (1 - v / scale.top) * (H - T - B);
+  const defs = svgEl("defs", {}, svg);
+  const area = svgEl("linearGradient", { id: "ov-area", x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  svgEl("stop", { offset: "0%", "stop-color": "#4f8bff", "stop-opacity": ".55" }, area);
+  svgEl("stop", { offset: "100%", "stop-color": "#4f8bff", "stop-opacity": "0" }, area);
+  const stroke = svgEl("linearGradient", { id: "ov-line", x1: 0, y1: 0, x2: 1, y2: 0 }, defs);
+  svgEl("stop", { offset: "0%", "stop-color": "#4f8bff" }, stroke);
+  svgEl("stop", { offset: "100%", "stop-color": "#7fd0ff" }, stroke);
+  scale.ticks.forEach((t) => {
+    svgEl("line", { x1: L, x2: W - R, y1: y(t), y2: y(t), class: "grid" }, svg);
+    const label = svgEl("text", { x: L - 10, y: y(t) + 4, "text-anchor": "end" }, svg);
+    label.textContent = TOOLS.axisLabel(t);
+  });
+  const pts = values.map((v, i) => [x(i), y(v)]);
+  const path = TOOLS.smoothPath(pts);
+  svgEl("path", { d: path + " L" + x(values.length - 1) + " " + y(0) + " L" + x(0) + " " + y(0) + " Z", fill: "url(#ov-area)" }, svg);
+  svgEl("path", { d: path, fill: "none", stroke: "url(#ov-line)", "stroke-width": 3, "stroke-linecap": "round" }, svg);
+  const every = Math.ceil(values.length / 8);
+  pts.forEach(([px, py], i) => {
+    svgEl("circle", { cx: px, cy: py, r: 3.5, fill: "#7fd0ff", stroke: "#0a1128", "stroke-width": 1.5 }, svg);
+    if (i % every === 0 || i === values.length - 1) {
+      const t = svgEl("text", { x: px, y: H - 12, "text-anchor": "middle" }, svg);
+      t.textContent = labels[i];
+    }
+  });
+  const tip = svgEl("g", { "pointer-events": "none" }, svg);
+  const halo = svgEl("circle", { r: 8, fill: "#7fd0ff", "fill-opacity": ".25" }, tip);
+  const dot = svgEl("circle", { r: 5, fill: "#fff", stroke: "#4f8bff", "stroke-width": 2.5 }, tip);
+  const box = svgEl("rect", { width: 76, height: 42, rx: 10, fill: "rgba(8,14,34,.92)", stroke: "rgba(143,180,255,.5)" }, tip);
+  const num = svgEl("text", { "text-anchor": "middle", class: "tip-text", style: "fill:#fff;font-size:15px" }, tip);
+  const unit = svgEl("text", { "text-anchor": "middle", style: "fill:#aab7d8;font-size:11px" }, tip);
+  unit.textContent = "Units";
+  const place = (i) => {
+    const bx = Math.min(Math.max(pts[i][0] - 38, 4), W - 80);
+    const by = Math.max(pts[i][1] - 58, 2);
+    halo.setAttribute("cx", pts[i][0]); halo.setAttribute("cy", pts[i][1]);
+    dot.setAttribute("cx", pts[i][0]); dot.setAttribute("cy", pts[i][1]);
+    box.setAttribute("x", bx); box.setAttribute("y", by);
+    num.setAttribute("x", bx + 38); num.setAttribute("y", by + 19);
+    unit.setAttribute("x", bx + 38); unit.setAttribute("y", by + 34);
+    num.textContent = values[i].toLocaleString();
+    svg.setAttribute("aria-label", "Units in stock per day. " + labels[i] + ": " + values[i].toLocaleString());
+  };
+  place(values.length - 1);
+  const hit = svgEl("rect", { x: L, y: 0, width: W - L - R, height: H - B, fill: "transparent" }, svg);
+  const near = (e) => {
+    const r = svg.getBoundingClientRect();
+    const px = ((e.clientX - r.left) / r.width) * W;
+    return Math.max(0, Math.min(values.length - 1, Math.round(((px - L) / (W - L - R)) * (values.length - 1))));
+  };
+  hit.addEventListener("pointermove", (e) => place(near(e)));
+  hit.addEventListener("pointerleave", () => place(values.length - 1));
+}
+
+const ACTIVITY_ICON = { sale: "cart", stock: "cube", order: "cart", alert: "warn", other: "doc" };
+
+function drawActivity(rows) {
+  const list = $("activity-list");
+  list.replaceChildren();
+  $("activity-empty").hidden = rows.length > 0;
+  rows.forEach((r) => {
+    const li = document.createElement("li");
+    const icon = document.createElement("span");
+    icon.className = "act-ico act-" + r.kind;
+    const glyph = document.createElement("i");
+    glyph.className = "ico glow ico-" + ACTIVITY_ICON[r.kind];
+    icon.append(glyph);
+    const text = document.createElement("div");
+    text.className = "act-text";
+    const title = document.createElement("strong");
+    title.textContent = r.title;
+    const when = document.createElement("small");
+    when.textContent = r.when;
+    text.append(title, when);
+    const right = document.createElement("span");
+    right.className = "act-right";
+    right.textContent = r.right;
+    li.append(icon, text, right);
+    list.append(li);
+  });
+}
+
+async function loadDashboard() {
+  paintIdentity();
+  const days = Math.max(dash.range, 7) + 1;
+  const [sum, rep, prods, moves, act, notes, set] = await Promise.allSettled([
+    api("GET", "/api/v1/dashboard"),
+    api("GET", "/api/v1/reports/movements?days=" + days),
+    api("GET", "/api/v1/products"),
+    api("GET", "/api/v1/movements?limit=" + MAX_MOVEMENTS),
+    api("GET", "/api/v1/activity?limit=20"),
+    api("GET", "/api/v1/notifications"),
+    api("GET", "/api/v1/settings"),
+  ]);
+  if (sum.status === "rejected") {
+    if (sum.reason.status === 403) return false;
+    banner(sum.reason.message);
+    return true;
+  }
+  banner("");
+  const s = sum.value.summary;
+  const nowMs = Date.now();
+  const day7 = lastDays(8);
+  const products = prods.status === "fulfilled" ? prods.value : null;
+  const movements = moves.status === "fulfilled" ? moves.value : null;
+  // The newest 500 movements are enough when they reach back past the start of the 8-day window.
+  const windowStart = Date.parse(day7[0] + "T00:00:00Z");
+  const complete = Boolean(movements) && (movements.length < MAX_MOVEMENTS
+    || Date.parse(movements[movements.length - 1].created_at) < windowStart);
+
+  // Products
+  let pDelta = null;
+  let pSeries = null;
+  if (products) {
+    const counts = day7.map((k) => products.filter((p) => Date.parse(p.created_at) <= endOfDay(k)).length);
+    pDelta = TOOLS.pctDelta(s.products, counts[0]);
+    pSeries = counts.slice(1);
+  }
+  setKpi("products", s.products, pDelta, pSeries);
+  if (products) setStage(products, dashStage);
+
+  // Units in stock, worked backwards from today's level using the daily movement totals
+  let uDelta = null;
+  let uSeries = null;
+  let overview = null;
+  if (rep.status === "fulfilled") {
+    const byDay = {};
+    rep.value.daily.forEach((d) => { byDay[d.day] = d.units_in - d.units_out; });
+    const net = (keys) => keys.map((k) => byDay[k] || 0);
+    const week = TOOLS.levelsFromNet(s.units_in_stock, net(day7.slice(1)));
+    uDelta = TOOLS.pctDelta(s.units_in_stock, week.before);
+    uSeries = week.levels;
+    const keys = lastDays(dash.range);
+    overview = {
+      values: TOOLS.levelsFromNet(s.units_in_stock, net(keys)).levels,
+      labels: keys.map((k) => (dash.range === 7
+        ? new Date(k + "T12:00:00Z").toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" })
+        : new Date(k + "T12:00:00Z").toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" }))),
+    };
+  }
+  setKpi("units", s.units_in_stock, uDelta, uSeries);
+
+  // Low and out of stock: rebuilt from each product's movement history, only when that history is complete
+  let lowDelta = null;
+  let outDelta = null;
+  let lowSeries = null;
+  let outSeries = null;
+  if (products && complete) {
+    const counts = day7.map((k) => TOOLS.stockCountsAt(products, movements, endOfDay(k)));
+    lowDelta = TOOLS.pctDelta(s.low_stock, counts[0].low);
+    outDelta = TOOLS.pctDelta(s.out_of_stock, counts[0].out);
+    lowSeries = counts.slice(1).map((c) => c.low);
+    outSeries = counts.slice(1).map((c) => c.out);
+  }
+  setKpi("low", s.low_stock, lowDelta, lowSeries);
+  setKpi("out", s.out_of_stock, outDelta, outSeries);
+
+  if (overview) { drawOverview(overview.values, overview.labels); dash.drawnAt = $("overview-chart").getBoundingClientRect().width; }
+  $("overview-note").hidden = Boolean(overview);
+  $("overview-chart").toggleAttribute("hidden", !overview);
+  if (!overview) { $("overview-note").textContent = "Your role cannot see the stock history."; }
+
+  // Recent activity, plus the first low-stock alert like the design shows
+  const rows = [];
+  if (act.status === "fulfilled") {
+    const wanted = act.value.filter((a) => ["sales_order", "purchase_order", "product"].includes(a.entity));
+    (wanted.length ? wanted : act.value).slice(0, 4).forEach((a) => {
+      const d = TOOLS.describeActivity(a);
+      rows.push({ ...d, when: TOOLS.relTime(a.created_at, nowMs) });
+    });
+  }
+  if (notes.status === "fulfilled" && notes.value.items.length) {
+    const low = notes.value.items.find((i) => /low|out of stock/i.test(i.message));
+    if (low) rows.splice(Math.min(rows.length, 3), rows.length >= 4 ? 1 : 0, { title: "Low Stock Alert", kind: "alert", right: low.message.split(" is ")[0], when: "Needs attention" });
+  }
+  drawActivity(rows.slice(0, 4));
+
+  // Upgrade prompts only for workspaces on the free plan
+  const free = set.status === "fulfilled" && set.value.plan.name === "free";
+  $("upgrade-card").hidden = !free;
+  $("promo").hidden = !free;
+  return true;
+}
+
+const phoneQuery = window.matchMedia("(max-width: 760px)");
+
+function layoutHeader() {
+  const inApp = !$("user-chip").hidden;
+  const actions = document.querySelector(".top-actions");
+  const menu = $("userbar");
+  const sel = $("workspace-switch");
+  const add = $("new-workspace");
+  const role = $("role-label");
+  const theme = $("theme-toggle");
+  const out = $("logout");
+  if (inApp && phoneQuery.matches) {
+    $("wsbar").append(sel, add);
+    actions.insertBefore(role, $("bell-top"));
+    menu.append(theme, out);
+  } else {
+    menu.append(sel, add, role, out);
+    actions.insertBefore(theme, actions.firstChild);
+  }
+}
+
+function bindDashboard() {
+  phoneQuery.addEventListener("change", layoutHeader);
+  let resizeTimer = 0;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const chart = $("overview-chart");
+      if (!dash.last || chart.hidden || Math.abs(chart.getBoundingClientRect().width - dash.drawnAt) < 40) return;
+      drawOverview(dash.last.values, dash.last.labels);
+      dash.drawnAt = chart.getBoundingClientRect().width;
+    }, 200);
+  });
+  $("overview-range").addEventListener("change", (e) => { dash.range = Number(e.target.value); loadDashboard(); });
+  $("activity-all").addEventListener("click", () => showView("team"));
+  $("upgrade-go").addEventListener("click", () => showView("settings"));
+  $("promo-go").addEventListener("click", () => showView("settings"));
+  const closeMenu = () => { document.querySelector(".topbar").classList.remove("menu-open"); $("user-chip").setAttribute("aria-expanded", "false"); $("menu-btn").setAttribute("aria-expanded", "false"); };
+  $("user-chip").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = document.querySelector(".topbar").classList.toggle("menu-open");
+    $("user-chip").setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".userbar")) closeMenu(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeMenu();
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k" && !$("search-box").hidden) { e.preventDefault(); $("global-search").focus(); }
+  });
+  $("global-search").addEventListener("keydown", async (e) => {
+    if (e.key !== "Enter") return;
+    const q = e.target.value.trim();
+    await showView("dashboard");
+    $("search").value = q;
+    await loadProducts();
+    e.target.blur();
+  });
+  $("menu-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = document.querySelector(".topbar").classList.toggle("menu-open");
+    $("menu-btn").setAttribute("aria-expanded", String(open));
+  });
+  document.querySelectorAll("[data-quick]").forEach((b) => b.addEventListener("click", () => {
+    const q = b.dataset.quick;
+    if (q === "alerts") { $("bell-top").click(); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+    if (q === "more") { window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+    showView(q);
+  }));
+}
+
+/* ---------- planning: ABC and XYZ classes, safety stock, reorder points ---------- */
+
+const plan = { offset: 0, pageSize: 50 };
+const PLAN_STATUS = {
+  "reorder-now": ["Reorder now", "reorder-now"], "reorder-soon": ["Reorder soon", "reorder-soon"], overstock: ["Overstock", "overstock"],
+  ok: ["OK", "ok"], idle: ["No recent sales", "idle"], "no-demand": ["No demand", "idle"],
+};
+
+function planKpi(label, value, warn) {
+  const box = document.createElement("div");
+  box.className = "stat" + (warn && value > 0 ? " warn" : "");
+  const l = document.createElement("div");
+  l.className = "label";
+  l.textContent = label;
+  const v = document.createElement("div");
+  v.className = "value";
+  v.textContent = Number(value).toLocaleString();
+  box.append(l, v);
+  return box;
+}
+
+function renderPlanSummary(d) {
+  const s = d.summary;
+  const p = d.parameters;
+  const kpis = $("plan-kpis");
+  kpis.replaceChildren(planKpi("Products", s.products), planKpi("Reorder now", s.reorder_now, true), planKpi("Reorder soon", s.reorder_soon, true),
+    planKpi("Overstock", s.overstock), planKpi("Safety stock (units)", s.safety_stock_units), planKpi("Units to order", s.units_to_order));
+  const lead = p.lead_orders > 0
+    ? "Supplier lead time: " + p.lead_days + " days" + (p.lead_orders > 1 ? " (spread " + p.lead_days_std + ")" : "") + ", from " + p.lead_orders + " received order" + (p.lead_orders > 1 ? "s" : "") + "."
+    : "Supplier lead time: 7 days until your first purchase order is received.";
+  $("plan-note").textContent = lead + " Demand history: " + p.days + " days. " + d.method + ".";
+  const body = $("plan-matrix");
+  body.replaceChildren();
+  ["A", "B", "C"].forEach((a) => {
+    const tr = document.createElement("tr");
+    tr.append(cell(a + "  (" + s.abc[a] + ")"), ...["X", "Y", "Z"].map((x) => cell(String(s.matrix[a + x] || 0), "num")));
+    body.append(tr);
+  });
+  if (s.abc.N) {
+    const tr = document.createElement("tr");
+    tr.append(cell("No demand (" + s.abc.N + ")"), cell("", "num"), cell("", "num"), cell("", "num"));
+    body.append(tr);
+  }
+}
+
+async function loadPlanning(more) {
+  if (!more) plan.offset = 0;
+  const q = new URLSearchParams({ days: $("plan-days").value || "90", review_days: $("plan-review").value || "7", limit: String(plan.pageSize), offset: String(plan.offset) });
+  if ($("plan-service").value) q.set("service_level", $("plan-service").value);
+  if ($("plan-status").value) q.set("status", $("plan-status").value);
+  try {
+    const d = await api("GET", "/api/v1/planning?" + q.toString());
+    if (!more) { renderPlanSummary(d); $("plan-body").replaceChildren(); }
+    d.rows.forEach((r) => {
+      const tr = document.createElement("tr");
+      const status = document.createElement("td");
+      const [label, kind] = PLAN_STATUS[r.status] || [r.status, "idle"];
+      status.append(badge(label, kind));
+      const klass = document.createElement("td");
+      klass.append(badge(r.class, r.abc === "A" ? "in" : r.abc === "B" ? "ordered" : "idle"));
+      const order = cell(r.suggested_order ? r.suggested_order + " " + r.unit : "-", "num");
+      if (r.suggested_order) order.style.fontWeight = "700";
+      tr.append(klass, cell(r.sku + " - " + r.name), cell(String(r.quantity), "num"), cell(String(r.on_order), "num"), cell(String(r.avg_daily_demand), "num"),
+        cell(String(r.safety_stock), "num"), cell(String(r.reorder_point), "num"), cell(String(r.order_up_to), "num"), order, status);
+      $("plan-body").append(tr);
+    });
+    plan.offset += d.rows.length;
+    $("plan-more").hidden = plan.offset >= d.total;
+    emptyNote("plan-empty", d.total === 0);
+  } catch (err) { forbiddenOr(err, "Your role cannot see planning."); }
+}
+
+function bindPlanning() {
+  ["plan-days", "plan-review", "plan-service", "plan-status"].forEach((id) => $(id).addEventListener("change", () => loadPlanning(false)));
+  $("plan-more").addEventListener("click", () => loadPlanning(true));
+}
+
 function bind() {
   const tabs = { login: $("tab-login"), register: $("tab-register") };
   tabs.login.addEventListener("click", () => switchTab("login"));
@@ -1256,6 +1708,7 @@ function bind() {
     const f = event.target.elements;
     try {
       await api("POST", "/api/v1/auth/login", { email: f.email.value, password: f.password.value });
+      rememberEmail(f.email.value);
       event.target.reset();
       await boot();
     } catch (err) { banner(err.message); }
@@ -1268,6 +1721,7 @@ function bind() {
       await api("POST", "/api/v1/auth/register", {
         workspace_name: f.workspace_name.value, email: f.email.value, password: f.password.value,
       });
+      rememberEmail(f.email.value);
       event.target.reset();
       await boot();
     } catch (err) { banner(err.message); }
@@ -1275,6 +1729,7 @@ function bind() {
 
   $("logout").addEventListener("click", async () => {
     try { await api("POST", "/api/v1/auth/logout"); } catch (_) { /* ignore */ }
+    try { localStorage.removeItem("stockflow-email"); } catch (_) { /* ignore */ }
     show("auth");
     banner("");
   });
@@ -1304,6 +1759,8 @@ function bind() {
   bindImport();
   bindTools();
   bindSales();
+  bindDashboard();
+  bindPlanning();
   $("product-cancel").addEventListener("click", () => $("product-dialog").close());
   $("movement-cancel").addEventListener("click", () => $("movement-dialog").close());
 
@@ -1398,7 +1855,7 @@ function bind() {
     applyTheme(THEMES[(THEMES.indexOf(storedTheme()) + 1) % THEMES.length]);
   });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => applyTheme(storedTheme()));
-  $("bell").addEventListener("click", async () => {
+  $("bell-top").addEventListener("click", async () => {
     await loadNotifications();
     info(state.alerts.length ? state.alerts.map((a) => a.message).join("  ") : "No alerts. Everything looks fine.");
   });

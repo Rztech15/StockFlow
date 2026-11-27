@@ -89,7 +89,7 @@
       text: plural(list.length, "product needs", "products need") + " reordering:",
       items: list.slice(0, 8).map((r) => r.name + ": order " + r.suggested_reorder + " " + (r.unit || "units")
         + " (" + r.quantity + " left"
-        + (r.days_of_cover === null ? "" : ", about " + Math.floor(r.days_of_cover) + " days of cover")
+        + (r.days_of_cover === null ? "" : ", about " + plural(Math.floor(r.days_of_cover), "day", "days") + " of cover")
         + (r.status === "reorder-now" ? ", urgent" : "") + ")"),
     };
   }
@@ -146,8 +146,125 @@
     };
   }
 
+  /* ---------- dashboard maths: everything is derived from real records, nothing is invented ---------- */
+
+  /* Stock level at the end of each day, worked backwards from today's level.
+     net[i] is units in minus units out on day i (oldest first, last = today). */
+  function levelsFromNet(nowValue, net) {
+    const levels = new Array(net.length);
+    let level = nowValue;
+    for (let i = net.length - 1; i >= 0; i -= 1) {
+      levels[i] = level;
+      level -= net[i];
+    }
+    return { levels, before: level };
+  }
+
+  /* "+8%" style change. then === 0 cannot give a percentage, so the plain increase is shown ("+3"). */
+  function pctDelta(now, then) {
+    if (then === 0) return now === 0 ? { text: "0%", dir: "flat" } : { text: "+" + now, dir: "up" };
+    const pct = Math.round(((now - then) / then) * 100);
+    if (pct === 0) return { text: "0%", dir: "flat" };
+    return { text: (pct > 0 ? "+" : "") + pct + "%", dir: pct > 0 ? "up" : "down" };
+  }
+
+  /* Round axis for a chart: ticks 0..top in 4 equal steps. */
+  function niceScale(max) {
+    const raw = Math.max(max, 1) / 4;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 1.5, 2, 2.5, 3, 4, 5, 10].map((m) => m * mag).find((v) => v >= raw);
+    return { step, top: step * 4, ticks: [0, 1, 2, 3, 4].map((i) => i * step) };
+  }
+
+  const axisLabel = (v) => (v >= 1000 ? (v / 1000) + "K" : String(v));
+
+  /* Each product's quantity at a past moment: today's quantity minus what came in since, plus what went out.
+     Products created after that moment did not exist yet. */
+  function quantitiesAt(products, movements, cutoffMs) {
+    const delta = {};
+    movements.forEach((m) => {
+      if (Date.parse(m.created_at) > cutoffMs) delta[m.product_id] = (delta[m.product_id] || 0) + (m.movement_type === "IN" ? m.quantity : -m.quantity);
+    });
+    const out = {};
+    products.forEach((p) => {
+      if (Date.parse(p.created_at) <= cutoffMs) out[p.id] = p.quantity - (delta[p.id] || 0);
+    });
+    return out;
+  }
+
+  function stockCountsAt(products, movements, cutoffMs) {
+    const q = quantitiesAt(products, movements, cutoffMs);
+    let low = 0;
+    let out = 0;
+    products.forEach((p) => {
+      if (!(p.id in q)) return;
+      if (q[p.id] === 0) out += 1; else if (q[p.id] <= p.minimum_stock) low += 1;
+    });
+    return { low, out, products: Object.keys(q).length };
+  }
+
+  /* A smooth curve through the points (Catmull-Rom turned into Bezier segments). */
+  function smoothPath(pts) {
+    if (!pts.length) return "";
+    const f = (n) => n.toFixed(1);
+    let d = "M" + f(pts[0][0]) + " " + f(pts[0][1]);
+    for (let i = 0; i < pts.length - 1; i += 1) {
+      const p0 = pts[i - 1] || pts[i];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[i + 2] || p2;
+      d += " C" + f(p1[0] + (p2[0] - p0[0]) / 6) + " " + f(p1[1] + (p2[1] - p0[1]) / 6)
+        + " " + f(p2[0] - (p3[0] - p1[0]) / 6) + " " + f(p2[1] - (p3[1] - p1[1]) / 6)
+        + " " + f(p2[0]) + " " + f(p2[1]);
+    }
+    return d;
+  }
+
+  /* Turns one activity-log row into a title, an icon kind and a short right-hand text. */
+  function describeActivity(a) {
+    const detail = a.detail ? String(a.detail) : "";
+    const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1).replace(/_/g, " ");
+    if (a.entity === "sales_order") {
+      const title = a.action === "created" ? "New Sale" : a.action === "shipped" ? "Order Shipped" : "Sale " + cap(a.action);
+      return { title, kind: "sale", right: detail };
+    }
+    if (a.entity === "purchase_order") {
+      const title = a.action === "created" ? "Purchase Order" : "Order " + cap(a.action);
+      return { title, kind: "order", right: detail };
+    }
+    if (a.entity === "product" && (a.action === "stock_in" || a.action === "stock_out")) {
+      return { title: "Stock Updated", kind: "stock", right: (a.action === "stock_in" ? "+" : "-") + detail };
+    }
+    if (a.entity === "product") {
+      const title = a.action === "created" ? "Product Added" : a.action === "imported" ? "Products Imported" : "Product " + cap(a.action);
+      return { title, kind: "stock", right: detail };
+    }
+    return { title: cap(a.entity) + " " + a.action.replace(/_/g, " "), kind: "other", right: detail };
+  }
+
+  function relTime(iso, nowMs) {
+    const s = Math.max(0, Math.round((nowMs - Date.parse(iso)) / 1000));
+    if (s < 45) return "just now";
+    if (s < 3600) return Math.max(1, Math.floor(s / 60)) + " min ago";
+    if (s < 86400) return plural(Math.floor(s / 3600), "hour", "hours") + " ago";
+    if (s < 172800) return "yesterday";
+    return plural(Math.floor(s / 86400), "day", "days") + " ago";
+  }
+
+  function displayName(email) {
+    const local = String(email || "").split("@")[0].replace(/[._-]+/g, " ").replace(/\d+/g, " ").trim();
+    return local.split(/\s+/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  }
+
+  function initials(name) {
+    const parts = String(name || "").split(/\s+/).filter(Boolean);
+    if (!parts.length) return "?";
+    return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+  }
+
   root.StockFlowTools = {
     round2, calc, classify, findProduct, median, unusualMovements,
+    levelsFromNet, pctDelta, niceScale, smoothPath, axisLabel, quantitiesAt, stockCountsAt, describeActivity, relTime, displayName, initials,
     answerReorder, answerFast, answerSlow, answerForecast, answerStock, answerUnusual, answerSummary,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = root.StockFlowTools;

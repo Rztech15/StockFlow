@@ -12,14 +12,23 @@
 <body>
   <header class="topbar">
     <img class="logo" src="/brand/logo-horizontal-dark.svg" alt="StockFlow">
+    <label id="search-box" class="searchbox" hidden>
+      <i class="ico ico-search" aria-hidden="true"></i>
+      <input id="global-search" type="search" placeholder="Search anything... (Ctrl + K)" aria-label="Search products" autocomplete="off" maxlength="100">
+    </label>
+    <div class="top-actions">
+      <button id="theme-toggle" class="btn ghost small" type="button">Theme: Auto</button>
+      <button id="bell-top" class="iconbtn" type="button" aria-label="Notifications" hidden><i class="ico ico-bell" aria-hidden="true"></i><span id="bell-top-count" class="dot-count" hidden>0</span></button>
+      <button id="user-chip" class="userchip" type="button" aria-haspopup="true" aria-expanded="false" hidden><span id="avatar" class="avatar" aria-hidden="true">?</span><span id="user-name" class="uname">Account</span><i class="ico ico-chevron" aria-hidden="true"></i></button>
+      <button id="menu-btn" class="iconbtn" type="button" aria-label="Account menu" aria-expanded="false" aria-haspopup="true" hidden><i class="ico ico-menu" aria-hidden="true"></i></button>
+    </div>
+    <div id="wsbar" class="wsbar"></div>
     <div id="userbar" class="userbar" hidden>
       <select id="workspace-switch" aria-label="Workspace"></select>
       <button id="new-workspace" class="btn ghost small" type="button">+ Workspace</button>
-      <button id="bell" class="btn ghost small" type="button" aria-label="Notifications">Alerts <span id="bell-count" class="count" hidden>0</span></button>
       <span id="role-label" class="badge in"></span>
       <button id="logout" class="btn ghost small" type="button">Log out</button>
     </div>
-    <button id="theme-toggle" class="btn ghost small" type="button">Theme: Auto</button>
   </header>
 
   <main>
@@ -46,21 +55,90 @@
     </section>
 
     <section id="app-view" hidden>
-      <nav class="tabs nav">
-        <button class="tab active" type="button" data-view="inventory">Inventory</button>
+      <nav class="tabs nav" aria-label="Main sections">
+        <button class="tab active" type="button" data-view="dashboard">Dashboard</button>
+        <button class="tab" type="button" data-view="inventory">Inventory</button>
         <button class="tab" type="button" data-view="purchasing">Purchasing</button>
         <button class="tab" type="button" data-view="sales">Sales</button>
         <button class="tab" type="button" data-view="insights">Insights</button>
+        <button class="tab" type="button" data-view="planning">Planning</button>
         <button class="tab" type="button" data-view="reports">Reports</button>
         <button class="tab" type="button" data-view="team">Team</button>
         <button class="tab" type="button" data-view="assistant">Assistant</button>
         <button class="tab" type="button" data-view="calculator">Calculator</button>
         <button class="tab" type="button" data-view="settings">Settings</button>
+        <div id="upgrade-card" class="upgrade" hidden>
+          <i class="ico ico-crown glow gold" aria-hidden="true"></i>
+          <strong>Upgrade to Pro</strong>
+          <span>Unlock more features</span>
+          <button id="upgrade-go" class="btn outline small" type="button">Go Pro <i class="ico ico-arrow" aria-hidden="true"></i></button>
+        </div>
       </nav>
 
-      <div id="view-inventory" data-panel>
+      <div class="content">
+      <div id="view-dashboard" data-panel>
+        <section class="card dash-welcome">
+          <i class="ico ico-bars glow welcome-art" aria-hidden="true"></i>
+          <div>
+            <h2 id="welcome-title">Welcome back!</h2>
+            <p class="muted">Here's what's happening with your business today.</p>
+          </div>
+          <div class="datechip"><i class="ico ico-calendar" aria-hidden="true"></i><span id="today-date"></span></div>
+        </section>
+        <div class="kpis">
+          <article class="kpi kpi-blue">
+            <i class="ico ico-cube glow kpi-ico" aria-hidden="true"></i>
+            <div class="kpi-body"><span class="kpi-label">Products</span><strong id="kpi-products" class="kpi-value">-</strong><span id="kpi-products-delta" class="kpi-delta" hidden></span></div>
+            <svg id="spark-products" class="spark" role="img" aria-label="Products over the last 7 days" hidden></svg>
+          </article>
+          <article class="kpi kpi-green">
+            <i class="ico ico-cube glow kpi-ico" aria-hidden="true"></i>
+            <div class="kpi-body"><span class="kpi-label">Units in Stock</span><strong id="kpi-units" class="kpi-value">-</strong><span id="kpi-units-delta" class="kpi-delta" hidden></span></div>
+            <svg id="spark-units" class="spark" role="img" aria-label="Units in stock over the last 7 days" hidden></svg>
+          </article>
+          <article class="kpi kpi-amber">
+            <i class="ico ico-warn glow kpi-ico" aria-hidden="true"></i>
+            <div class="kpi-body"><span class="kpi-label">Low Stock</span><strong id="kpi-low" class="kpi-value">-</strong><span id="kpi-low-delta" class="kpi-delta" hidden></span></div>
+            <svg id="spark-low" class="spark" role="img" aria-label="Low stock products over the last 7 days" hidden></svg>
+          </article>
+          <article class="kpi kpi-red">
+            <i class="ico ico-xcircle glow kpi-ico" aria-hidden="true"></i>
+            <div class="kpi-body"><span class="kpi-label">Out of Stock</span><strong id="kpi-out" class="kpi-value">-</strong><span id="kpi-out-delta" class="kpi-delta" hidden></span></div>
+            <svg id="spark-out" class="spark" role="img" aria-label="Out of stock products over the last 7 days" hidden></svg>
+          </article>
+        </div>
+        <section id="dash-stage-card" class="card">
+          <div class="card-head"><h3>Stock levels in 3D</h3></div>
+          <p class="muted">Each bar is a product: blue is healthy, orange is low, red is out. Drag sideways to rotate.</p>
+          <canvas id="dash-stage" class="stage" role="img" aria-label="3D bars showing the stock level of each product"></canvas>
+        </section>
+        <div class="dash-grid">
+          <section class="card">
+            <div class="card-head">
+              <h3>Stock Overview</h3>
+              <select id="overview-range" class="range" aria-label="Period"><option value="7">Last 7 Days</option><option value="14">Last 14 Days</option><option value="30">Last 30 Days</option></select>
+            </div>
+            <svg id="overview-chart" class="chart" role="img" aria-label="Units in stock per day"></svg>
+            <p id="overview-note" class="muted" hidden></p>
+          </section>
+          <section class="card">
+            <div class="card-head">
+              <h3>Recent Activity</h3>
+              <button id="activity-all" class="linkbtn" type="button">View All <i class="ico ico-arrow" aria-hidden="true"></i></button>
+            </div>
+            <ul id="activity-list" class="activity"></ul>
+            <p id="activity-empty" class="muted" hidden>Nothing has happened yet. Add a product or record a sale and it shows up here.</p>
+          </section>
+        </div>
+        <section id="promo" class="promo" hidden>
+          <i class="ico ico-crown glow gold promo-ico" aria-hidden="true"></i>
+          <div><strong>Take your business to the next level</strong><span>Get advanced analytics, AI insights and more.</span></div>
+          <button id="promo-go" class="btn blue" type="button">Upgrade Now <i class="ico ico-arrow" aria-hidden="true"></i></button>
+        </section>
+      </div>
+      <div id="view-inventory" data-panel hidden>
         <div id="summary" class="cards"></div>
-        <div id="stage-card" class="card" hidden>
+        <div id="stage-card" class="card">
           <h2>Stock levels in 3D</h2>
           <p class="muted">Each bar is a product (up to 12, most stock first). Blue is healthy, orange is low, red is out. It follows your search and filters. Drag sideways to rotate.</p>
           <canvas id="stage" class="stage" role="img" aria-label="3D bars showing the stock level of each product"></canvas>
@@ -154,6 +232,38 @@
             </table>
           </div>
           <p id="customers-empty" class="muted" hidden>No customers yet.</p>
+        </div>
+      </div>
+
+      <div id="view-planning" data-panel hidden>
+        <div class="card">
+          <h2>Inventory planning</h2>
+          <p class="muted">ABC and XYZ classes, safety stock and reorder points worked out from units issued. Plain statistics, not machine learning. Order when the stock position (on hand plus on order) reaches the reorder point, up to the order-up-to level.</p>
+          <div class="map">
+            <label>History <select id="plan-days"><option value="30">30 days</option><option value="60">60 days</option><option value="90" selected>90 days</option><option value="180">180 days</option><option value="365">365 days</option></select></label>
+            <label>Review period <select id="plan-review"><option value="7" selected>7 days</option><option value="14">14 days</option><option value="30">30 days</option></select></label>
+            <label>Service level <select id="plan-service"><option value="" selected>By class (A 98%, B 95%, C 90%)</option><option value="0.9">90%</option><option value="0.95">95%</option><option value="0.98">98%</option><option value="0.99">99%</option></select></label>
+            <label>Show <select id="plan-status"><option value="" selected>All products</option><option value="reorder-now">Reorder now</option><option value="reorder-soon">Reorder soon</option><option value="overstock">Overstock</option><option value="idle">No recent sales</option><option value="ok">OK</option></select></label>
+          </div>
+          <p id="plan-note" class="muted"></p>
+        </div>
+        <div id="plan-kpis" class="cards"></div>
+        <div class="card">
+          <h3>ABC and XYZ classes</h3>
+          <p class="muted">Rows: A is the top 80% of units issued, B the next 15%, C the rest. Columns: X steady demand, Y variable, Z erratic.</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Class</th><th class="num">X steady</th><th class="num">Y variable</th><th class="num">Z erratic</th></tr></thead>
+            <tbody id="plan-matrix"></tbody>
+          </table></div>
+        </div>
+        <div class="card">
+          <h3>Products</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Class</th><th>Product</th><th class="num">On hand</th><th class="num">On order</th><th class="num">Per day</th><th class="num">Safety stock</th><th class="num">Reorder point</th><th class="num">Order up to</th><th class="num">Order now</th><th>Status</th></tr></thead>
+            <tbody id="plan-body"></tbody>
+          </table></div>
+          <p id="plan-empty" class="muted" hidden>No products match.</p>
+          <div class="row end"><button id="plan-more" class="btn ghost" type="button" hidden>Load more</button></div>
         </div>
       </div>
 
@@ -305,8 +415,16 @@
              <a class="btn ghost small" href="/api/v1/export/movements.csv" download>Export movements (CSV)</a></p>
         </div>
       </div>
+      </div>
     </section>
   </main>
+
+  <nav id="bottombar" class="bottombar" aria-label="Quick navigation" hidden>
+    <button type="button" data-quick="dashboard" class="active"><i class="ico ico-home" aria-hidden="true"></i>Home</button>
+    <button type="button" data-quick="insights"><i class="ico ico-bars" aria-hidden="true"></i>Analytics</button>
+    <button type="button" data-quick="alerts"><i class="ico ico-bell" aria-hidden="true"></i>Notifications<span id="bottom-count" class="dot-count" hidden>0</span></button>
+    <button type="button" data-quick="more"><i class="ico ico-more" aria-hidden="true"></i>More</button>
+  </nav>
 
   <dialog id="product-dialog">
     <form id="product-form" class="form" method="dialog">
@@ -344,8 +462,8 @@
       <h3>Import products</h3>
       <label class="drop" id="import-drop">
         <strong>Choose a file or drop it here</strong>
-        <span class="muted">CSV or JSON, up to 1,000 rows and 2 MB. From Excel: Save As, then CSV.</span>
-        <input id="import-file" type="file" accept=".csv,.txt,.json" class="visually-hidden">
+        <span class="muted">Excel (.xlsx), CSV, JSON, XML, HTML, Word (.docx), PowerPoint (.pptx) and PDF tables, OpenDocument (.ods), Markdown and more. A PDF must hold real text, not a scan. Up to 1,000 rows and 5 MB.</span>
+        <input id="import-file" type="file" class="visually-hidden">
       </label>
       <p id="import-info" class="muted"></p>
       <p id="import-error" class="error" hidden></p>
@@ -428,6 +546,7 @@
   </dialog>
 
   <script src="/tools.js"></script>
+  <script src="/importers.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
